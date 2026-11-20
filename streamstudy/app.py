@@ -22,6 +22,7 @@ from .ui.forecast_view import ForecastView
 from .ui.home_view import HomeView
 from .ui.hydro_view import HydroView
 from .ui.precip_view import PrecipView
+from .ui.response_view import ResponseView
 from .ui.sites_view import SitesView
 from .ui.theme import (
     ACCENT,
@@ -71,6 +72,10 @@ class StreamStudyApp:
         self.settings = load_settings(settings_path)
         self.days = int(self.settings.get("days", 14))
         self.bundle: DataBundle | None = None
+        self.history_years = int(self.settings.get("history_years", 3))
+        self.history_loading = False
+        self._history_site: str | None = None
+        self._history_token = 0
         self._token = 0
         self._busy = False
         self._alive = True
@@ -86,8 +91,8 @@ class StreamStudyApp:
     def _build_window(self) -> None:
         family = font_family(self.root)
         self.root.title(f"{APP_NAME} \u2014 stream gage & precipitation explorer")
-        self.root.geometry("1180x820")
-        self.root.minsize(980, 700)
+        self.root.geometry("1180x900")
+        self.root.minsize(1000, 720)
         apply_theme(self.root)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
@@ -166,16 +171,19 @@ class StreamStudyApp:
         self.home_view = HomeView(self.notebook, self)
         self.hydro_view = HydroView(self.notebook, self)
         self.precip_view = PrecipView(self.notebook, self)
+        self.response_view = ResponseView(self.notebook, self)
         self.forecast_view = ForecastView(self.notebook, self)
         self.sites_view = SitesView(self.notebook, self)
         for view, label in (
             (self.home_view, "Overview"),
             (self.hydro_view, "Hydrograph"),
             (self.precip_view, "Precipitation"),
+            (self.response_view, "Rainfall \u2192 Flow"),
             (self.forecast_view, "Forecast"),
             (self.sites_view, "Site finder"),
         ):
             self.notebook.add(view, text=label)
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         # -- footer
         footer = ttk.Frame(self.root, padding=(18, 6))
@@ -255,6 +263,7 @@ class StreamStudyApp:
         clear = getattr(self.client, "clear_cache", None)
         if callable(clear):
             clear()
+        self._history_site = None
         site = self.bundle.site.number if self.bundle else self.site_var.get()
         self.load_site(site)
 
@@ -278,6 +287,14 @@ class StreamStudyApp:
 
     def show_site_finder(self) -> None:
         self.notebook.select(self.sites_view)
+
+    def show_response(self) -> None:
+        self.notebook.select(self.response_view)
+
+    def _on_tab_changed(self, _event: tk.Event) -> None:
+        if self.notebook.select() == str(self.response_view):
+            self._ensure_history()
+
 
     def run_async(self, work, callback) -> None:
         """Run ``work()`` off the UI thread and invoke ``callback(result, error)``.
@@ -328,6 +345,64 @@ class StreamStudyApp:
             return
         self.apply_bundle(bundle)
 
+    # -- rainfall-runoff history ---------------------------------------
+    def _ensure_history(self) -> None:
+        if self.bundle is None:
+            return
+        self.response_view.render(self.bundle)
+        if self._history_site == self.bundle.site.number or self.history_loading:
+            return
+        self.load_history()
+
+    def load_history(self, years: int | None = None) -> None:
+        if self.bundle is None:
+            return
+        if years is not None:
+            self.history_years = max(1, min(int(years), 15))
+        site = self.bundle.site
+        self._history_token += 1
+        token = self._history_token
+        self.history_loading = True
+        self._history_site = None
+        self.response_view.render(self.bundle)
+        coco = self.bundle.coco_station.identifier if self.bundle.coco_station else None
+        span = self.history_years
+
+        def work():
+            return self.loader.load_history(site, years=span, coco_station=coco)
+
+        self.run_async(
+            work, lambda result, error: self._finish_history(token, result, error)
+        )
+
+    def _finish_history(self, token: int, result, error) -> None:
+        if token != self._history_token:
+            return
+        self.history_loading = False
+        if error is not None:
+            self.set_status(f"History analysis failed: {error}", tone="bad")
+            return
+        if self.bundle is None:
+            return
+        self.bundle.history = result
+        self._history_site = self.bundle.site.number
+        self.settings["history_years"] = self.history_years
+        save_settings(self.settings, self.settings_path)
+        self.response_view.render(self.bundle)
+        fit = result.fit
+        if fit is not None:
+            self.set_status(
+                f"Rainfall response: {fit.events} storms \u00b7 {fit.slope:,.0f} cfs/in "
+                f"\u00b7 lag {fit.lag_p50_hours:.0f} h \u00b7 {result.precip_source}",
+                tone="muted",
+            )
+        else:
+            self.set_status(
+                f"Rainfall response: only {len(result.events)} usable storms in "
+                f"{self.history_years} years \u2014 try a longer history.",
+                tone="warn",
+            )
+
     def apply_bundle(self, bundle: DataBundle) -> None:
         self.bundle = bundle
         site = bundle.site
@@ -361,6 +436,7 @@ class StreamStudyApp:
         self.settings["days"] = self.days
         self.site_combo.configure(values=self.settings["recent_sites"])
         save_settings(self.settings, self.settings_path)
+        self._ensure_history()
 
     def _update_source_dots(self, bundle: DataBundle) -> None:
         availability = {

@@ -1,6 +1,12 @@
 import unittest
+from datetime import date
 
-from streamstudy.providers.usgs import UsgsProvider, parse_iv_json, parse_site_rdb
+from streamstudy.providers.usgs import (
+    UsgsProvider,
+    parse_dv_json,
+    parse_iv_json,
+    parse_site_rdb,
+)
 from tests.support import StaticClient, fixture
 
 
@@ -48,6 +54,29 @@ class InstantaneousValuesTest(unittest.TestCase):
         series = parse_iv_json(fixture("usgs_iv.json"))["00060"]
         for sample in series.samples:
             self.assertIsNotNone(sample.time.tzinfo)
+
+
+class DailyValuesTest(unittest.TestCase):
+    def test_parses_daily_means(self):
+        daily = parse_dv_json(fixture("usgs_dv.json"))
+        self.assertIn("00060", daily)
+        flow = daily["00060"]
+        self.assertEqual(len(flow), 21)
+        self.assertEqual(flow[date(2024, 1, 1)], 152)
+        self.assertEqual(flow[date(2024, 1, 3)], 113)
+
+    def test_fetch_daily_request(self):
+        client = StaticClient()
+        provider = UsgsProvider(client)
+        provider.fetch_daily(
+            "0423205010", date(2024, 1, 1), date(2024, 1, 31), ("00060",)
+        )
+        url, params = client.calls[-1]
+        self.assertIn("/nwis/dv/", url)
+        self.assertEqual(params["statCd"], "00003")
+        self.assertEqual(params["parameterCd"], "00060")
+        self.assertEqual(params["startDT"], "2024-01-01")
+        self.assertEqual(params["endDT"], "2024-01-31")
 
 
 class ProviderTest(unittest.TestCase):

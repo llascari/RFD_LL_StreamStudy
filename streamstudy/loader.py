@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import date, timedelta
 
-from .models import DataBundle, GaugeStation, utc_now
+from .analysis import mm_to_inches
+from .models import DataBundle, GaugeStation, HistoryBundle, Site, utc_now
+from .response import analyse_history
 from .providers.cocorahs import CoCoRaHSProvider
 from .providers.nws import NwsProvider
 from .providers.openmeteo import OpenMeteoProvider
@@ -130,3 +133,69 @@ class BundleLoader:
 
         bundle.fetched_at = utc_now()
         return bundle
+
+    def load_history(
+        self,
+        site: Site,
+        *,
+        years: int = 3,
+        coco_station: str | None = None,
+    ) -> HistoryBundle:
+        """Daily flow + precipitation over several years, with a fitted response."""
+        years = max(1, min(int(years), 15))
+        end = date.today() - timedelta(days=1)
+        try:
+            start = end.replace(year=end.year - years)
+        except ValueError:  # 29 February -> use the 28th
+            start = end.replace(year=end.year - years, day=28)
+
+        errors: list[str] = []
+        flow: dict[date, float] = {}
+        try:
+            daily = self.usgs.fetch_daily(site.number, start, end, ("00060",))
+            flow = daily.get("00060", {})
+        except Exception as exc:  # noqa: BLE001 - one source failing is survivable
+            errors.append(f"USGS daily values: {exc}")
+
+        precip: dict[date, float] = {}
+        source = ""
+        if coco_station:
+            try:
+                days = (date.today() - start).days + 2
+                rows = self.cocorahs.daily_history(coco_station, days=days)
+                gauge = {day: value for day, value in rows if start <= day <= end}
+                coverage = len(set(gauge) & set(flow)) / max(1, len(flow))
+                if coverage >= 0.35:
+                    precip = gauge
+                    source = f"CoCoRaHS {coco_station} ({coverage:.0%} of days)"
+                elif gauge:
+                    errors.append(
+                        f"CoCoRaHS {coco_station}: only {coverage:.0%} day coverage, "
+                        "using ERA5 instead"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"CoCoRaHS history: {exc}")
+
+        if not precip:
+            try:
+                archive = self.openmeteo.fetch_archive(
+                    site.latitude, site.longitude, start, end
+                )
+                precip = {
+                    day: mm_to_inches(millimetres) for day, millimetres in archive.daily
+                }
+                source = "Open-Meteo ERA5"
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"Open-Meteo archive: {exc}")
+
+        events, fit = analyse_history(flow, precip)
+        return HistoryBundle(
+            start=start,
+            end=end,
+            precip_source=source or "unavailable",
+            precip_days=len(precip),
+            flow_days=len(flow),
+            events=tuple(events),
+            fit=fit,
+            errors=errors,
+        )

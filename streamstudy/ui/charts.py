@@ -13,7 +13,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from ..analysis import nice_step
-from .theme import BORDER, GRID, MUTED, SURFACE, SURFACE_ALT, TEXT, font_family
+from .theme import (
+    ACCENT,
+    BORDER,
+    GRID,
+    MUTED,
+    SERIES_COLORS,
+    SURFACE,
+    SURFACE_ALT,
+    TEXT,
+    font_family,
+)
 
 
 @dataclass
@@ -324,3 +334,204 @@ def _format_tick(value: float, step: float) -> str:
     if step >= 0.1:
         return f"{value:.1f}"
     return f"{value:.2f}"
+
+
+class ScatterChart(tk.Canvas):
+    """Scatter plot with an optional fitted line and one highlighted point."""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        *,
+        height: int = 280,
+        title: str = "",
+        x_unit: str = "",
+        y_unit: str = "",
+        empty_text: str = "No events yet",
+    ) -> None:
+        super().__init__(
+            master, height=height, bg=SURFACE, highlightthickness=0, bd=0, takefocus=0
+        )
+        self._points: list[tuple[float, float]] = []
+        self._slope: float | None = None
+        self._highlight: tuple[float, float] | None = None
+        self._title = title
+        self._x_unit = x_unit
+        self._y_unit = y_unit
+        self._empty = empty_text
+        self._hover: tuple[float, float] | None = None
+        self._geometry: tuple[float, float, float, float, float, float] | None = None
+
+        self.bind("<Configure>", lambda _event: self.redraw())
+        self.bind("<Motion>", self._on_motion)
+        self.bind("<Leave>", lambda _event: self._set_hover(None))
+
+    # -- API -----------------------------------------------------------
+    def set_data(
+        self,
+        points: list[tuple[float, float]],
+        *,
+        slope: float | None = None,
+        highlight: tuple[float, float] | None = None,
+        title: str | None = None,
+        empty_text: str | None = None,
+    ) -> None:
+        self._points = list(points)
+        self._slope = slope
+        self._highlight = highlight
+        if title is not None:
+            self._title = title
+        if empty_text is not None:
+            self._empty = empty_text
+        self._hover = None
+        self.redraw()
+
+    # -- events --------------------------------------------------------
+    def _pixel(self, x_value: float, y_value: float) -> tuple[float, float]:
+        left, top, plot_w, plot_h, xmax, ymax = self._geometry or (0, 0, 1, 1, 1, 1)
+        return (
+            left + x_value / xmax * plot_w,
+            top + (ymax - y_value) / ymax * plot_h,
+        )
+
+    def _on_motion(self, event: tk.Event) -> None:
+        if not self._points or self._geometry is None:
+            return
+        nearest = None
+        best = 16.0**2
+        for point in self._points:
+            px, py = self._pixel(*point)
+            distance = (px - event.x) ** 2 + (py - event.y) ** 2
+            if distance < best:
+                best = distance
+                nearest = point
+        self._set_hover(nearest)
+
+    def _set_hover(self, point: tuple[float, float] | None) -> None:
+        if point == self._hover:
+            return
+        self._hover = point
+        self.redraw()
+
+    # -- drawing -------------------------------------------------------
+    def redraw(self) -> None:
+        self.delete("all")
+        width = self.winfo_width()
+        height = self.winfo_height()
+        family = font_family(self)
+        if width < 90 or height < 80:
+            return
+
+        left, right, top, bottom = 58, 18, 40, 38
+        plot_w = max(10, width - left - right)
+        plot_h = max(10, height - top - bottom)
+
+        if not self._points:
+            self.create_text(
+                width / 2, height / 2, text=self._empty, fill=MUTED, font=(family, 10)
+            )
+            return
+
+        xmax = max(x for x, _ in self._points) * 1.15 or 1.0
+        ymax = max(y for _, y in self._points) * 1.15 or 1.0
+        self._geometry = (left, top, plot_w, plot_h, xmax, ymax)
+
+        xstep = nice_step(xmax, 4)
+        ystep = nice_step(ymax, 4)
+
+        value = 0.0
+        while value <= xmax + xstep * 0.001:
+            x = left + value / xmax * plot_w
+            self.create_line(x, top, x, top + plot_h, fill=GRID)
+            self.create_text(
+                x,
+                top + plot_h + 10,
+                text=_format_tick(value, xstep),
+                fill=MUTED,
+                font=(family, 8),
+                anchor="n",
+            )
+            value += xstep
+
+        value = 0.0
+        while value <= ymax + ystep * 0.001:
+            y = top + (ymax - value) / ymax * plot_h
+            self.create_line(left, y, left + plot_w, y, fill=GRID)
+            self.create_text(
+                left - 8,
+                y,
+                text=_format_tick(value, ystep),
+                anchor="e",
+                fill=MUTED,
+                font=(family, 8),
+            )
+            value += ystep
+
+        self.create_line(left, top + plot_h, left + plot_w, top + plot_h, fill=BORDER)
+        self.create_line(left, top, left, top + plot_h, fill=BORDER)
+
+        if self._slope:
+            x_end = min(xmax, ymax / self._slope) if self._slope > 0 else xmax
+            self.create_line(
+                *self._pixel(0.0, 0.0),
+                *self._pixel(x_end, self._slope * x_end),
+                fill=ACCENT,
+                width=1,
+                dash=(5, 4),
+            )
+
+        for point in self._points:
+            x, y = self._pixel(*point)
+            self.create_oval(
+                x - 3, y - 3, x + 3, y + 3, fill=SERIES_COLORS["discharge"], outline=""
+            )
+
+        if self._highlight:
+            x, y = self._pixel(*self._highlight)
+            self.create_oval(
+                x - 7, y - 7, x + 7, y + 7, outline=SERIES_COLORS["gage"], width=2
+            )
+            self.create_text(
+                x + 10,
+                y - 10,
+                text="scenario",
+                anchor="w",
+                fill=SERIES_COLORS["gage"],
+                font=(family, 8, "bold"),
+            )
+
+        if self._hover:
+            x, y = self._pixel(*self._hover)
+            self.create_line(x, top, x, top + plot_h, fill=MUTED, dash=(2, 3))
+            label = f"{self._hover[0]:.2f} in -> {self._hover[1]:,.0f} cfs"
+            box_w = len(label) * 5.4 + 12
+            box_x = x + 10 if x + 10 + box_w < width - 6 else x - 10 - box_w
+            self.create_rectangle(
+                box_x, top + 2, box_x + box_w, top + 20, fill=SURFACE_ALT, outline=BORDER
+            )
+            self.create_text(
+                box_x + 6,
+                top + 11,
+                text=label,
+                anchor="w",
+                fill=TEXT,
+                font=(family, 8),
+            )
+
+        if self._title:
+            self.create_text(
+                left, 12, text=self._title, anchor="w", fill=TEXT, font=(family, 10, "bold")
+            )
+        if self._y_unit:
+            self.create_text(
+                left + plot_w, 12, text=self._y_unit, anchor="e", fill=MUTED, font=(family, 9)
+            )
+        if self._x_unit:
+            self.create_text(
+                left + plot_w,
+                top + plot_h + 24,
+                text=self._x_unit,
+                anchor="e",
+                fill=MUTED,
+                font=(family, 8),
+            )

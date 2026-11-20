@@ -1,8 +1,12 @@
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from streamstudy.providers.openmeteo import OpenMeteoProvider, parse_payload
+from streamstudy.providers.openmeteo import (
+    OpenMeteoProvider,
+    parse_archive_payload,
+    parse_payload,
+)
 from tests.support import StaticClient, fixture
 
 
@@ -39,6 +43,27 @@ class OpenMeteoTest(unittest.TestCase):
         self.assertEqual(params["timezone"], "auto")
         self.assertEqual(params["timeformat"], "unixtime")
         self.assertIn("precipitation", params["hourly"])
+
+
+class ArchiveTest(unittest.TestCase):
+    def test_archive_daily_days(self):
+        payload = json.loads(fixture("openmeteo_archive.json"))
+        archive = parse_archive_payload(payload)
+        self.assertEqual(len(archive.daily), 21)
+        day, millimetres = archive.daily[0]
+        self.assertEqual(day, date(2024, 1, 1))
+        self.assertAlmostEqual(millimetres, 0.6)
+        self.assertEqual(archive.timezone, "America/New_York")
+
+    def test_provider_archive_parameters(self):
+        client = StaticClient()
+        provider = OpenMeteoProvider(client)
+        provider.fetch_archive(43.14, -77.51, date(2024, 1, 1), date(2024, 1, 31))
+        url, params = client.calls[-1]
+        self.assertIn("archive-api.open-meteo.com", url)
+        self.assertEqual(params["start_date"], "2024-01-01")
+        self.assertEqual(params["end_date"], "2024-01-31")
+        self.assertEqual(params["daily"], "precipitation_sum")
 
 
 if __name__ == "__main__":

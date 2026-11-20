@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 from ..http import HttpClient
 from ..models import Sample, Series, Site, to_utc
 
 IV_URL = "https://waterservices.usgs.gov/nwis/iv/"
+DV_URL = "https://waterservices.usgs.gov/nwis/dv/"
 SITE_URL = "https://waterservices.usgs.gov/nwis/site/"
 USER_AGENT = "RFD-StreamStudy/0.1 (+https://github.com/llascari/RFD_StreamStudy)"
 
@@ -116,6 +117,37 @@ def parse_site_rdb(text: str) -> list[Site]:
     return sites
 
 
+def parse_dv_json(text: str) -> dict[str, dict[date, float]]:
+    """Parse daily-values JSON into ``{parameter: {date: value}}``.
+
+    Daily timestamps are naive local midnights (``2024-01-01T00:00:00.000``),
+    so the date part is taken verbatim.
+    """
+    data = json.loads(text)
+    entries = data.get("value", {}).get("timeSeries", []) or []
+    result: dict[str, dict[date, float]] = {}
+    for entry in entries:
+        variable = entry.get("variable", {}) or {}
+        codes = variable.get("variableCode") or [{}]
+        code = str(codes[0].get("value", ""))
+        if not code:
+            continue
+        values: dict[date, float] = {}
+        for block in entry.get("values", []) or []:
+            for item in block.get("value", []) or []:
+                raw = str(item.get("dateTime", ""))
+                try:
+                    day = date.fromisoformat(raw[:10])
+                except ValueError:
+                    continue
+                value = _number(item.get("value"))
+                if value is not None:
+                    values[day] = value
+        if values:
+            result[code] = values
+    return result
+
+
 def parse_iv_json(text: str) -> dict[str, Series]:
     """Parse the WaterML-JSON instantaneous-values response."""
     data = json.loads(text)
@@ -186,6 +218,28 @@ class UsgsProvider:
             },
         )
         return parse_iv_json(text)
+
+    def fetch_daily(
+        self,
+        number: str,
+        start: date,
+        end: date,
+        parameters: tuple[str, ...] = ("00060", "00065"),
+    ) -> dict[str, dict[date, float]]:
+        """Daily mean values (statistic 00003) for multi-year analysis."""
+        text = self._client.get_text(
+            DV_URL,
+            {
+                "format": "json",
+                "sites": number,
+                "parameterCd": ",".join(parameters),
+                "statCd": "00003",
+                "startDT": start.isoformat(),
+                "endDT": end.isoformat(),
+                "siteStatus": "all",
+            },
+        )
+        return parse_dv_json(text)
 
     def search_sites(
         self,

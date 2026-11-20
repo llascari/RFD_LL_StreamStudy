@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rfd-stream-study"
 version = "0.1.0"
-description = "Desktop explorer for USGS stream gages, NWS forecasts and precipitation sources."
+description = "Desktop explorer for USGS stream gages, NWS forecasts, precipitation sources and rainfall-runoff response."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -13,6 +13,8 @@ authors = [{ name = "llascari" }]
 keywords = [
     "usgs",
     "streamflow",
+    "rainfall-runoff",
+    "unit hydrograph",
     "water data",
     "precipitation",
     "weather",

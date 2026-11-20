@@ -66,7 +66,15 @@ class AppSmokeTest(unittest.TestCase):
     def test_tabs(self):
         labels = [self.app.notebook.tab(tab, "text") for tab in self.app.notebook.tabs()]
         self.assertEqual(
-            labels, ["Overview", "Hydrograph", "Precipitation", "Forecast", "Site finder"]
+            labels,
+            [
+                "Overview",
+                "Hydrograph",
+                "Precipitation",
+                "Rainfall \u2192 Flow",
+                "Forecast",
+                "Site finder",
+            ],
         )
 
     def test_header_and_status(self):
@@ -111,6 +119,60 @@ class AppSmokeTest(unittest.TestCase):
             time.sleep(0.01)
         self.assertIsNotNone(self.app.bundle)
         self.assertEqual(self.app.bundle.site.number, "0423205010")
+
+    def test_response_view_renders(self):
+        from datetime import date, timedelta
+
+        from streamstudy.models import FlowEvent, HistoryBundle, ResponseFit, utc_now
+
+        bundle = self.app.bundle
+        assert bundle is not None
+        start = date(2023, 11, 20)
+        events = tuple(
+            FlowEvent(
+                start=start + timedelta(days=30 * index),
+                end=start + timedelta(days=30 * index),
+                rain_in=0.4 + 0.1 * index,
+                rain_days=1,
+                baseline_cfs=50.0,
+                peak_cfs=100.0 + 30 * index,
+                peak_date=start + timedelta(days=30 * index + 1),
+                rise_cfs=50.0 + 30 * index,
+                lag_hours=18.0,
+                half_life_days=1.8,
+            )
+            for index in range(5)
+        )
+        fit = ResponseFit(
+            events=5,
+            slope=120.0,
+            ratio_p10=60.0,
+            ratio_p50=120.0,
+            ratio_p90=200.0,
+            r_squared=0.62,
+            lag_p50_hours=18.0,
+            lag_p10_hours=10.0,
+            lag_p90_hours=30.0,
+            half_life_days=1.8,
+            confidence="moderate",
+        )
+        bundle.history = HistoryBundle(
+            start=start,
+            end=date(2026, 11, 19),
+            precip_source="CoCoRaHS NY-MR-90 (62% of days)",
+            precip_days=600,
+            flow_days=1000,
+            events=events,
+            fit=fit,
+        )
+        bundle.nws_qpf = ((utc_now() + timedelta(hours=4), 0.8),)
+        self.app.history_years = 3
+        self.app.response_view.render(bundle)
+
+        self.assertEqual(self.app.response_view.response_card.value_var.get(), "120")
+        self.assertEqual(len(self.app.response_view.table.get_children()), 5)
+        self.assertGreaterEqual(len(self.app.response_view.prediction_chart._all_series), 4)
+        self.assertIn("peak", self.app.response_view.outlook.cget("text"))
 
     def test_site_search(self):
         sites = self.app.providers["usgs"].search_sites(state="NY")

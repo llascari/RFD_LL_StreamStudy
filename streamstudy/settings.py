@@ -13,11 +13,13 @@ DEFAULTS = {
     "last_site": DEFAULT_SITE,
     "recent_sites": [DEFAULT_SITE],
     "days": 14,
+    "history_years": 3,
     "coco_station": "",
     "state": "NY",
 }
 
 ALLOWED_DAYS = (7, 14, 30, 60)
+ALLOWED_HISTORY_YEARS = (2, 3, 5, 10)
 
 
 def default_settings_path() -> Path:
@@ -44,6 +46,8 @@ def load_settings(path: str | Path | None = None) -> dict:
         pass
     if data["days"] not in ALLOWED_DAYS:
         data["days"] = DEFAULTS["days"]
+    if data["history_years"] not in ALLOWED_HISTORY_YEARS:
+        data["history_years"] = DEFAULTS["history_years"]
     if not isinstance(data["recent_sites"], list):
         data["recent_sites"] = list(DEFAULTS["recent_sites"])
     return data

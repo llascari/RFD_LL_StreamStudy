@@ -125,6 +125,53 @@ class ForecastPeriod:
     detailed: str = ""
 
 
+@dataclass(frozen=True)
+class FlowEvent:
+    """One rain storm and the streamflow rise it produced."""
+
+    start: date
+    end: date
+    rain_in: float
+    rain_days: int
+    baseline_cfs: float
+    peak_cfs: float
+    peak_date: date
+    rise_cfs: float
+    lag_hours: float
+    half_life_days: float | None = None
+
+
+@dataclass(frozen=True)
+class ResponseFit:
+    """Empirical rainfall-runoff relationship for one gage."""
+
+    events: int
+    slope: float  # cfs per inch, fitted through the origin
+    ratio_p10: float
+    ratio_p50: float
+    ratio_p90: float
+    r_squared: float
+    lag_p50_hours: float
+    lag_p10_hours: float
+    lag_p90_hours: float
+    half_life_days: float
+    confidence: str
+
+
+@dataclass
+class HistoryBundle:
+    """Multi-year daily precipitation + flow, with derived events and fit."""
+
+    start: date
+    end: date
+    precip_source: str
+    precip_days: int
+    flow_days: int
+    events: tuple[FlowEvent, ...] = ()
+    fit: ResponseFit | None = None
+    errors: list[str] = field(default_factory=list)
+
+
 @dataclass
 class DataBundle:
     """Everything fetched for one site, ready for the views to render."""
@@ -142,6 +189,7 @@ class DataBundle:
     openmeteo_zone: str = ""
     coco_station: GaugeStation | None = None
     coco_daily: tuple[tuple[date, float], ...] = ()
+    history: HistoryBundle | None = None
     errors: list[str] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=utc_now)
 

@@ -4,18 +4,21 @@ A desktop explorer for **USGS stream gages, National Weather Service forecasts, 
 data** — built with Python and Tkinter, with no third-party dependencies.
 
 Enter any USGS site number (the default is [0423205010, Irondequoit Creek above Blossom Rd near
-Rochester, NY](https://waterdata.usgs.gov/monitoring-location/USGS-0423205010/)) and see the
-hydrograph, nearby gauge rain reports, modelled rainfall and the official forecast side by side.
+Rochester, NY](https://waterdata.usgs.gov/monitoring-location/USGS-0423205010/)) to see the
+hydrograph, nearby gauge rain reports, the official forecast, and — the interesting part — how
+**past storms moved this stream**, plus a first-order estimate of what the forecast rain would do.
 
 | Overview | Hydrograph |
 | --- | --- |
 | ![Overview tab](docs/overview.png) | ![Hydrograph tab](docs/hydrograph.png) |
 
-| Precipitation | Forecast |
+| Precipitation | Rainfall → Flow |
 | --- | --- |
-| ![Precipitation tab](docs/precipitation.png) | ![Forecast tab](docs/forecast.png) |
+| ![Precipitation tab](docs/precipitation.png) | ![Rainfall to flow tab](docs/response.png) |
 
-![Site finder](docs/sites.png)
+| Forecast | Site finder |
+| --- | --- |
+| ![Forecast tab](docs/forecast.png) | ![Site finder](docs/sites.png) |
 
 ## Features
 
@@ -24,15 +27,40 @@ hydrograph, nearby gauge rain reports, modelled rainfall and the official foreca
 - **Precipitation comparison** — daily bars and a table comparing up to four sources:
   on-site USGS precipitation (parameter `00045` where available), the nearest CoCoRaHS volunteer
   gauge, Open-Meteo's gridded model, and NWS ASOS observations
+- **Rainfall → Flow** — 2–10 years of daily flow and rain become a fitted rainfall-runoff
+  response: storms detected, response rate (cfs per inch), time to peak, recession half-life,
+  a rainfall-vs-rise scatter with the storm examples behind the fit, and a forecast-driven
+  predicted hydrograph with a 10–90 % band and the most similar past storms
 - **Forecast** — NWS daily periods with full discussion text, plus the NWS gridpoint
   **quantitative precipitation forecast** (6-hourly bars) and peak precipitation probability
 - **Site finder** — search active USGS surface-water gages by state, or within ~50 km of the
   loaded site, then double-click to load one
-- **Resilient by design** — every provider is independent: if one API is down the other three still
+- **Resilient by design** — every provider is independent: if one API is down the others still
   render, and the failure is shown as a warning instead of a broken window
 - **Fast and polite** — background threads (results marshalled through a queue, never touching Tk
   from a worker), in-memory HTTP cache, one retry on transient 5xx/network errors
-- **Zero install** — standard library only: `tkinter`, `urllib`, `sqlite`-free JSON settings
+
+## The rainfall → flow model
+
+This is deliberately a **first-order empirical estimate**, not a hydrologic simulation. For each
+gage, three to five years of daily data are used:
+
+1. **Baseflow** — a rolling 7-day minimum, lightly smoothed and never above the flow.
+2. **Storm events** — consecutive rain days (≥ 0.10 in); the peak is the highest daily flow
+   within four days of the storm ending. Measured: rainfall total, rise above baseflow, lag from
+   the rain centroid to the peak, and the post-peak recession half-life.
+3. **Response fit** — rise per inch through the origin (least squares), plus the 10th/50th/90th
+   percentiles of that ratio, the median lag (with its 10–90 % range), a log-log r², and a
+   confidence label.
+4. **Prediction** — the forecast hyetograph (NWS QPF, or Open-Meteo as fallback) gives a rain
+   total and centroid. Peak = baseflow + ratio × rain, timed at centroid + median lag; the curve
+   rises smoothly and recesses exponentially at the fitted half-life. The 10–90 % band is drawn
+   from the ratio percentiles, and the five most similar historical storms are listed.
+
+You can override the forecast total with any what-if amount in the tab. The model does **not**
+account for soil moisture, snowmelt, seasonality, or upstream routing, and it works at daily
+resolution — the band is the honest expression of that. Treat it as a screening tool and a way to
+see how this particular stream has behaved, not as a flood forecast.
 
 ## Data sources and APIs
 
@@ -40,20 +68,25 @@ Everything comes from documented, structured APIs — no HTML scraping:
 
 | Network | Endpoint | Used for | Auth |
 | --- | --- | --- | --- |
-| **USGS NWIS** | `waterservices.usgs.gov/nwis/iv/` (JSON) | Discharge, gage height, water temperature, on-site precipitation (last ≤120 days) | none |
+| **USGS NWIS** | `waterservices.usgs.gov/nwis/iv/` (JSON) | Recent discharge, gage height, water temperature, on-site precipitation (≤120 days) | none |
+| **USGS NWIS** | `waterservices.usgs.gov/nwis/dv/` (JSON) | **Daily mean flow for the multi-year response fit** | none |
 | **USGS NWIS** | `waterservices.usgs.gov/nwis/site/` (RDB) | Site metadata and gage search (`siteType=ST`, `parameterCd=00060`) | none |
-| **USGS Water Data** | `api.waterdata.usgs.gov/ogcapi/v0/…` | The newer OGC API — verified working; the app uses NWIS IV for its broader parameter coverage | none |
-| **NWS** | `api.weather.gov/points/…`, `/gridpoints/…`, `/stations/…/observations` | Nearest ASOS station observations, daily/hourly forecast, gridpoint QPF | none (User-Agent required) |
+| **USGS Water Data** | `api.waterdata.usgs.gov/ogcapi/v0/…` | The newer OGC API — verified working; NWIS IV is used for its broader parameter coverage | none |
+| **NWS** | `api.weather.gov/points/…`, `/gridpoints/…`, `/stations/…/observations` | Nearest ASOS observations, daily/hourly forecast, gridpoint QPF | none (User-Agent required) |
 | **Open-Meteo** | `api.open-meteo.com/v1/forecast` | Hourly precipitation + probability, daily sums (past 60 days, 2-day forecast) | none |
-| **CoCoRaHS** | `data.cocorahs.org/cocorahs/export/exportreports.aspx` | Volunteer 24-hour gauge reports, nearest-gauge search | none |
+| **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse) | none |
+| **CoCoRaHS** | `data.cocorahs.org/cocorahs/export/exportreports.aspx` | Volunteer 24-hour gauge reports: recent comparison, nearest-gauge search, and multi-year history | none |
 
 Notes:
 
+- The historical rain series prefers the **CoCoRaHS gauge** when it covers ≥ 35 % of the period
+  (the example gage's gauge covers ~62 % of days), and falls back to **ERA5** otherwise. The tab
+  always names the source in use.
 - CoCoRaHS also publishes a JSON API at `api2.cocorahs.org`; it resolved IPv6-only and timed out
   from our test network, so the app uses the official bulk CSV export endpoint instead. Both are
   documented public interfaces, not screen-scraping.
 - USGS values are **provisional** and may be revised. CoCoRaHS gauges report 24-hour totals at the
-  observer's reading time (~7 AM local), so daily comparisons are approximate. Open-Meteo is a
+  observer's reading time (~7 AM local), so daily alignment is approximate. Open-Meteo is a
   gridded model, not a gauge.
 
 ## Quick start
@@ -80,7 +113,7 @@ python -m pip install -e .
 streamstudy --site 0423205010
 ```
 
-Settings (recent sites, last site, window) live in a small JSON file:
+Settings (recent sites, last site, window, history length) live in a small JSON file:
 
 | Platform | Path |
 | --- | --- |
@@ -93,23 +126,26 @@ Override with `--settings PATH` or `$STREAMSTUDY_SETTINGS`.
 ## How it works
 
 ```
-provider API ──► parse_*() ──► models (Site, Series, ForecastPeriod…)
+provider API ──► parse_*() ──► models (Site, Series, FlowEvent, ResponseFit…)
                                    │
-                         BundleLoader.load(site, options)
-                    (one try/except per source → errors list)
+                        BundleLoader
+             .load()        — current conditions, all four sources
+             .load_history()— multi-year daily flow + rain, then response fit
                                    │
                 StreamStudyApp (worker thread → queue → Tk main thread)
                                    │
-         HomeView · HydroView · PrecipView · ForecastView · SitesView
+  HomeView · HydroView · PrecipView · ResponseView · ForecastView · SitesView
 ```
 
 - **`providers/`** — one module per network. Parsing functions are pure and unit tested against
   recorded API responses (`tests/fixtures/`).
-- **`loader.py`** — assembles a `DataBundle`; partial failures are collected in `bundle.errors`
-  rather than aborting.
+- **`loader.py`** — assembles a `DataBundle` (and the separate historical `HistoryBundle`);
+  partial failures are collected in `errors` rather than aborting.
+- **`response.py`** — baseflow separation, storm detection, response fit, scenario building and
+  hydrograph prediction. Pure functions, no I/O, heavily unit tested.
 - **`analysis.py`** — daily aggregation, unit conversions, medians/trends, "nice" axis steps.
-- **`ui/charts.py`** — a small canvas chart widget (lines, grouped bars, log axis, hover tooltip)
-  so the app stays dependency-free.
+- **`ui/charts.py`** — canvas chart widgets (time series lines/bars, log axis, hover readout,
+  and a scatter plot with fitted line) so the app stays dependency-free.
 - **`ui/theme.py`** — dark ttk theme; `ui/widgets.py` — stat cards and table helpers.
 
 ## Project layout
@@ -118,17 +154,18 @@ provider API ──► parse_*() ──► models (Site, Series, ForecastPeriod�
 RFD_LL_StreamStudy/
 ├── streamstudy/
 │   ├── __main__.py        # argparse entry point
-│   ├── app.py             # window, header, background loading, settings
-│   ├── loader.py          # per-source fetch orchestration
-│   ├── models.py          # Site, Series, Sample, ForecastPeriod, DataBundle
+│   ├── app.py             # window, header, background loading, history orchestration
+│   ├── loader.py          # per-source fetch orchestration + history analysis
+│   ├── models.py          # Site, Series, FlowEvent, ResponseFit, DataBundle…
+│   ├── response.py        # rainfall-runoff model: baseflow, storms, fit, prediction
 │   ├── analysis.py        # aggregation and formatting helpers
 │   ├── http.py            # cached, retrying urllib client
-│   ├── settings.py        # JSON settings (recent sites, window)
+│   ├── settings.py        # JSON settings (recent sites, window, history years)
 │   ├── providers/         # usgs.py · nws.py · openmeteo.py · cocorahs.py
-│   └── ui/                # theme, charts, widgets and the five views
+│   └── ui/                # theme, charts, widgets and the six views
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 53 tests (providers, analysis, loader, Tk smoke)
+│   └── test_*.py          # 72 tests (providers, response model, loader, Tk smoke)
 ├── docs/                  # screenshots
 ├── pyproject.toml
 └── .github/workflows/ci.yml
@@ -147,8 +184,9 @@ xvfb-run -a python -m unittest discover -s tests -t . -v
 ```
 
 The GUI tests skip themselves automatically when no display is available, so the suite also runs
-in plain CI containers. Fixtures were captured from the live APIs and trimmed, so the tests never
-touch the network.
+in plain CI containers. Provider fixtures were captured from the live APIs and trimmed; the
+response model is tested on synthetic storm series where the true response (150 cfs/in, 24 h lag,
+1.5-day half-life) is known.
 
 ## Attribution
 

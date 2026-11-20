@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from ..http import HttpClient
 
 API = "https://api.open-meteo.com/v1/forecast"
+ARCHIVE_API = "https://archive-api.open-meteo.com/v1/archive"
 USER_AGENT = "RFD-StreamStudy/0.1 (+https://github.com/llascari/RFD_StreamStudy)"
 
 
@@ -54,6 +55,25 @@ def parse_payload(payload: dict) -> OpenMeteoData:
     )
 
 
+@dataclass(frozen=True)
+class ArchiveData:
+    daily: tuple[tuple[date, float], ...]  # local day, mm
+    timezone: str
+
+
+def parse_archive_payload(payload: dict) -> ArchiveData:
+    offset = int(payload.get("utc_offset_seconds", 0) or 0)
+    section = payload.get("daily", {}) or {}
+    days = section.get("time", []) or []
+    totals = section.get("precipitation_sum", []) or []
+    daily: list[tuple[date, float]] = []
+    for index, stamp in enumerate(days):
+        day = datetime.fromtimestamp(int(stamp) + offset, tz=timezone.utc).date()
+        total = totals[index] if index < len(totals) else 0.0
+        daily.append((day, float(total or 0.0)))
+    return ArchiveData(daily=tuple(daily), timezone=payload.get("timezone", "") or "")
+
+
 class OpenMeteoProvider:
     """Free weather API with modelled precipitation (no key required)."""
 
@@ -82,3 +102,21 @@ class OpenMeteoProvider:
         }
         payload = self._client.get_json(API, params)
         return parse_payload(payload)
+
+    def fetch_archive(
+        self, latitude: float, longitude: float, start: date, end: date
+    ) -> ArchiveData:
+        """Historical daily precipitation from the ERA5 reanalysis archive."""
+        payload = self._client.get_json(
+            ARCHIVE_API,
+            {
+                "latitude": f"{latitude:.4f}",
+                "longitude": f"{longitude:.4f}",
+                "start_date": start.isoformat(),
+                "end_date": end.isoformat(),
+                "daily": "precipitation_sum",
+                "timezone": "auto",
+                "timeformat": "unixtime",
+            },
+        )
+        return parse_archive_payload(payload)

@@ -36,6 +36,7 @@ class StaticClient:
 def default_mapping() -> dict[str, str]:
     """Order matters: more specific paths first."""
     return {
+        "archive-api.open-meteo.com": fixture("openmeteo_archive.json"),
         "open-meteo.com": fixture("openmeteo.json"),
         "/observations": fixture("nws_observations.json"),
         "forecast/hourly": fixture("nws_hourly.json"),
@@ -45,5 +46,6 @@ def default_mapping() -> dict[str, str]:
         "/points/": fixture("nws_points.json"),
         "exportreports.aspx": fixture("cocorahs_station.csv"),
         "/nwis/iv/": fixture("usgs_iv.json"),
+        "/nwis/dv/": fixture("usgs_dv.json"),
         "/nwis/site/": fixture("usgs_site.rdb"),
     }
