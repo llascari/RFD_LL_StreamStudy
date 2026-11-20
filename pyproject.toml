@@ -3,26 +3,38 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "focusdeck"
+name = "rfd-stream-study"
 version = "0.1.0"
-description = "A small, dependency-free Pomodoro-style focus timer built with Tkinter."
+description = "Desktop explorer for USGS stream gages, NWS forecasts and precipitation sources."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-keywords = ["pomodoro", "focus", "timer", "tkinter", "gui", "productivity"]
+authors = [{ name = "llascari" }]
+keywords = [
+    "usgs",
+    "streamflow",
+    "water data",
+    "precipitation",
+    "weather",
+    "nws",
+    "open-meteo",
+    "cocorahs",
+    "tkinter",
+]
 classifiers = [
     "Environment :: X11 Applications",
     "Environment :: Win32 (MS Windows)",
-    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Topic :: Office/Business :: Scheduling",
+    "Topic :: Scientific/Engineering :: Hydrology",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
 ]
 dependencies = []
 
 [project.scripts]
-focusdeck = "focusdeck.__main__:main"
+streamstudy = "streamstudy.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["focusdeck*"]
+include = ["streamstudy*"]

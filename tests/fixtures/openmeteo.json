@@ -1,0 +1,56 @@
+{
+ "latitude": 43.14345,
+ "longitude": -77.524864,
+ "generationtime_ms": 0.07712841033935547,
+ "utc_offset_seconds": -18000,
+ "timezone": "America/New_York",
+ "timezone_abbreviation": "GMT-5",
+ "elevation": 85.0,
+ "hourly_units": {
+  "time": "unixtime",
+  "precipitation": "mm",
+  "precipitation_probability": "%"
+ },
+ "hourly": {
+  "time": [
+   1794978000,
+   1794981600,
+   1794985200,
+   1794988800,
+   1794992400,
+   1794996000
+  ],
+  "precipitation": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "precipitation_probability": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ]
+ },
+ "daily_units": {
+  "time": "unixtime",
+  "precipitation_sum": "mm"
+ },
+ "daily": {
+  "time": [
+   1794978000,
+   1795064400,
+   1795150800
+  ],
+  "precipitation_sum": [
+   0.0,
+   0.0,
+   0.0
+  ]
+ }
+}

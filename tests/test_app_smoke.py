@@ -1,21 +1,32 @@
-"""Headless smoke test for the Tkinter shell.
-
-Skipped automatically when Tk cannot open a display, so the suite still runs
-in plain CI containers (or on a server without X).
-"""
+"""Headless smoke tests for the Tk shell, driven entirely by fixtures."""
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 try:
     import tkinter as tk
-except Exception:  # pragma: no cover - tkinter not built into this Python
+except Exception:  # pragma: no cover
     tk = None
 
-from focusdeck.app import FocusDeckApp
-from focusdeck.engine import Phase, PhaseCompleted, Settings
-from focusdeck.store import Store
+from streamstudy.app import StreamStudyApp, normalize_site
+from streamstudy.loader import LoadOptions
+from streamstudy.providers import (
+    CoCoRaHSProvider,
+    NwsProvider,
+    OpenMeteoProvider,
+    UsgsProvider,
+)
+from tests.support import StaticClient
+
+
+class NormalizeSiteTest(unittest.TestCase):
+    def test_prefixes_and_whitespace(self):
+        self.assertEqual(normalize_site("USGS-0423205010"), "0423205010")
+        self.assertEqual(normalize_site(" usgs 0423205010 "), "0423205010")
+        self.assertEqual(normalize_site("0423205010"), "0423205010")
+        self.assertEqual(normalize_site(""), "")
 
 
 @unittest.skipIf(tk is None, "tkinter is not available")
@@ -23,63 +34,87 @@ class AppSmokeTest(unittest.TestCase):
     def setUp(self):
         try:
             self.root = tk.Tk()
-        except tk.TclError as exc:  # no display
+        except tk.TclError as exc:  # pragma: no cover - no display
             self.skipTest(f"no display available: {exc}")
+        self.root.geometry("1180x820")
         self.root.withdraw()
         self.tmp = tempfile.TemporaryDirectory()
-        self.store = Store(Path(self.tmp.name) / "smoke.db")
-        self.app = FocusDeckApp(self.root, self.store)
+        self.client = StaticClient()
+        providers = {
+            "usgs": UsgsProvider(self.client),
+            "nws": NwsProvider(self.client),
+            "openmeteo": OpenMeteoProvider(self.client),
+            "cocorahs": CoCoRaHSProvider(self.client),
+        }
+        self.app = StreamStudyApp(
+            self.root,
+            providers,
+            settings_path=str(Path(self.tmp.name) / "settings.json"),
+            auto_load=False,
+        )
+        self.bundle = self.app.loader.load("0423205010", LoadOptions(days=14))
+        self.app.apply_bundle(self.bundle)
+        self.root.update()
 
     def tearDown(self):
-        self.app.close()
+        try:
+            self.app.close()
+        except tk.TclError:  # pragma: no cover
+            pass
         self.tmp.cleanup()
 
-    def test_builds_all_tabs(self):
-        tabs = [self.app.notebook.tab(t, "text") for t in self.app.notebook.tabs()]
-        self.assertEqual(tabs, ["Timer", "Tasks", "History", "Settings"])
-        self.assertEqual(self.app.timer_view.clock.cget("text"), "25:00")
+    def test_tabs(self):
+        labels = [self.app.notebook.tab(tab, "text") for tab in self.app.notebook.tabs()]
+        self.assertEqual(
+            labels, ["Overview", "Hydrograph", "Precipitation", "Forecast", "Site finder"]
+        )
 
-    def test_timer_controls(self):
-        self.app.toggle_timer()
-        self.assertTrue(self.app.engine.running)
-        self.assertEqual(self.app.timer_view.start_button.cget("text"), "Pause")
-        self.app.toggle_timer()
-        self.assertFalse(self.app.engine.running)
-        self.app.reset_timer()
-        self.assertEqual(self.app.engine.remaining_seconds, 1500)
+    def test_header_and_status(self):
+        self.assertIn("IRONDEQUOIT", self.app.title_label.cget("text"))
+        self.assertIn("0423205010", self.app.sub_label.cget("text"))
+        self.assertIn("4/4", self.app.status_label.cget("text"))
 
-    def test_tasks_flow(self):
-        task = self.app.add_task("Ship the release")
-        self.assertEqual(self.app.store.tasks()[0].title, "Ship the release")
-        self.assertIn("Ship the release", self.app.timer_view.task_combo.cget("values"))
+    def test_overview_cards(self):
+        self.assertEqual(self.app.home_view.gage_card.value_var.get(), "2.92")
+        self.assertEqual(self.app.home_view.discharge_card.value_var.get(), "74")
+        self.assertNotEqual(self.app.home_view.precip_card.value_var.get(), "\u2014")
 
-        self.app.set_active_task(task.id)
-        self.assertEqual(self.app.active_task_id, task.id)
+    def test_hydrograph_series(self):
+        chart = self.app.hydro_view.discharge_chart
+        self.assertEqual(len(chart._all_series), 1)
+        self.assertIn("Latest", self.app.hydro_view.discharge_stats.cget("text"))
 
-        self.app.set_task_done(task.id, True)
-        self.assertTrue(self.app.store.tasks()[0].done)
+    def test_precipitation_tables(self):
+        summary_rows = self.app.precip_view.summary.get_children()
+        self.assertGreaterEqual(len(summary_rows), 2)
+        table_rows = self.app.precip_view.table.get_children()
+        self.assertEqual(len(table_rows), 14)
 
-        self.app.delete_task(task.id)
-        self.assertIsNone(self.app.active_task_id)
-        self.assertEqual(self.app.store.tasks(), [])
+    def test_forecast_rows(self):
+        rows = self.app.forecast_view.tree.get_children()
+        self.assertEqual(len(rows), 4)
+        self.assertTrue(self.app.forecast_view.detail.get("1.0", "end").strip())
 
-    def test_completed_focus_session_is_recorded(self):
-        self.app._handle_completion(PhaseCompleted(Phase.FOCUS, 1500))
-        rows = self.app.store.recent_sessions()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["duration_seconds"], 1500)
-        self.assertIn("1 session", self.app.timer_view.summary.cget("text"))
+    def test_charts_actually_draw(self):
+        self.root.deiconify()
+        self.app.show_hydrograph()
+        self.root.update()
+        self.app.hydro_view.discharge_chart.redraw()
+        self.assertGreater(len(self.app.hydro_view.discharge_chart.find_all()), 0)
 
-    def test_settings_are_applied_and_persisted(self):
-        self.app.save_settings(Settings(focus_minutes=50, daily_goal_minutes=200))
-        self.assertEqual(self.app.engine.total_seconds, 3000)
-        self.assertEqual(self.app.store.load_settings()["focus_minutes"], 50)
-        self.assertIn("200 min", self.app.timer_view.summary.cget("text"))
+    def test_async_load_round_trip(self):
+        self.app.bundle = None
+        self.app.load_site("0423205010")
+        deadline = time.time() + 5
+        while self.app.bundle is None and time.time() < deadline:
+            self.root.update()
+            time.sleep(0.01)
+        self.assertIsNotNone(self.app.bundle)
+        self.assertEqual(self.app.bundle.site.number, "0423205010")
 
-    def test_history_view_renders(self):
-        self.app.store.record_session(Phase.FOCUS, 1500)
-        self.app.history_view.reload()
-        self.assertGreaterEqual(len(self.app.history_view.tree.get_children()), 1)
+    def test_site_search(self):
+        sites = self.app.providers["usgs"].search_sites(state="NY")
+        self.assertEqual(sites[0].number, "0423205010")
 
 
 if __name__ == "__main__":

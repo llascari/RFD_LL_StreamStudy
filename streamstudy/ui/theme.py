@@ -1,4 +1,4 @@
-"""Dark, calm theme built entirely from ttk styles."""
+"""Dark 'deep water' theme built from ttk styles."""
 
 from __future__ import annotations
 
@@ -6,26 +6,35 @@ import tkinter as tk
 from tkinter import font as tkfont
 from tkinter import ttk
 
-BG = "#0f1115"
-SURFACE = "#171b22"
-SURFACE_ALT = "#212834"
-BORDER = "#2b3340"
-TEXT = "#e8ebf1"
-MUTED = "#8c96a8"
-ACCENT = "#6c8cff"
-ACCENT_HOVER = "#8aa4ff"
-ON_ACCENT = "#0b0d12"
-SUCCESS = "#3fb98a"
-DANGER = "#ff6b6b"
-FOCUS_COLOR = "#6c8cff"
-SHORT_COLOR = "#3fb98a"
-LONG_COLOR = "#c58af9"
+BG = "#0b1016"
+SURFACE = "#121a23"
+SURFACE_ALT = "#1a2530"
+BORDER = "#27343f"
+GRID = "#1c2833"
+TEXT = "#e6eef5"
+MUTED = "#8296a6"
+ACCENT = "#3fa9f5"
+ACCENT_HOVER = "#6dc0ff"
+ON_ACCENT = "#06121c"
+GOOD = "#35c48f"
+WARN = "#f2b544"
+BAD = "#ff6b6b"
+
+SERIES_COLORS = {
+    "discharge": "#4e9df0",
+    "gage": "#f0a33a",
+    "temperature": "#e0715f",
+    "usgs": "#cc79a7",
+    "cocorahs": "#009e73",
+    "openmeteo": "#56b4e9",
+    "nws": "#d55e00",
+}
 
 
 def font_family(root: tk.Misc) -> str:
     try:
         return tkfont.nametofont("TkDefaultFont").actual("family")
-    except tk.TclError:  # pragma: no cover - unusual Tk builds
+    except tk.TclError:  # pragma: no cover
         return "Helvetica"
 
 
@@ -34,7 +43,7 @@ def apply_theme(root: tk.Tk) -> None:
     style = ttk.Style(root)
     try:
         style.theme_use("clam")
-    except tk.TclError:  # pragma: no cover - platform without clam
+    except tk.TclError:  # pragma: no cover
         pass
 
     root.configure(bg=BG)
@@ -46,35 +55,32 @@ def apply_theme(root: tk.Tk) -> None:
     style.configure(".", background=BG, foreground=TEXT, font=(family, 10))
     style.configure("TFrame", background=BG)
     style.configure("Card.TFrame", background=SURFACE)
+    style.configure("Header.TFrame", background=SURFACE)
     style.configure("TLabel", background=BG, foreground=TEXT)
     style.configure("Card.TLabel", background=SURFACE, foreground=TEXT)
     style.configure("Muted.TLabel", background=BG, foreground=MUTED)
+    style.configure("MutedCard.TLabel", background=SURFACE, foreground=MUTED)
+
     style.configure(
-        "Heading.TLabel", background=BG, foreground=TEXT, font=(family, 17, "bold")
+        "Title.TLabel", background=BG, foreground=TEXT, font=(family, 19, "bold")
+    )
+    style.configure(
+        "Heading.TLabel", background=BG, foreground=TEXT, font=(family, 15, "bold")
     )
     style.configure(
         "Subheading.TLabel", background=BG, foreground=TEXT, font=(family, 11, "bold")
     )
     style.configure(
-        "Clock.TLabel", background=BG, foreground=TEXT, font=(family, 62, "bold")
+        "Value.TLabel", background=SURFACE, foreground=TEXT, font=(family, 20, "bold")
     )
     style.configure(
-        "PhaseFocus.TLabel",
-        background=BG,
-        foreground=FOCUS_COLOR,
-        font=(family, 12, "bold"),
+        "Link.TLabel", background=BG, foreground=ACCENT, font=(family, 9)
     )
     style.configure(
-        "PhaseShort.TLabel",
-        background=BG,
-        foreground=SHORT_COLOR,
-        font=(family, 12, "bold"),
+        "HeaderMuted.TLabel", background=SURFACE, foreground=MUTED, font=(family, 9)
     )
     style.configure(
-        "PhaseLong.TLabel",
-        background=BG,
-        foreground=LONG_COLOR,
-        font=(family, 12, "bold"),
+        "Header.TLabel", background=SURFACE, foreground=TEXT, font=(family, 9)
     )
 
     style.configure(
@@ -83,7 +89,7 @@ def apply_theme(root: tk.Tk) -> None:
         foreground=TEXT,
         borderwidth=0,
         focusthickness=0,
-        padding=(14, 7),
+        padding=(12, 6),
         font=(family, 10),
     )
     style.map(
@@ -96,13 +102,12 @@ def apply_theme(root: tk.Tk) -> None:
         background=ACCENT,
         foreground=ON_ACCENT,
         borderwidth=0,
-        focusthickness=0,
-        padding=(22, 11),
-        font=(family, 11, "bold"),
+        padding=(16, 7),
+        font=(family, 10, "bold"),
     )
     style.map(
         "Accent.TButton",
-        background=[("pressed", "#5b79e6"), ("active", ACCENT_HOVER), ("disabled", SURFACE_ALT)],
+        background=[("pressed", "#2f8fd0"), ("active", ACCENT_HOVER), ("disabled", SURFACE_ALT)],
         foreground=[("disabled", MUTED)],
     )
 
@@ -114,14 +119,13 @@ def apply_theme(root: tk.Tk) -> None:
         lightcolor=BG,
         darkcolor=BG,
         bordercolor=BG,
-        highlightthickness=0,
     )
     style.configure(
         "TNotebook.Tab",
         background=SURFACE,
         foreground=MUTED,
         borderwidth=0,
-        padding=(18, 9),
+        padding=(16, 8),
         lightcolor=SURFACE,
         darkcolor=SURFACE,
         bordercolor=SURFACE,
@@ -150,12 +154,7 @@ def apply_theme(root: tk.Tk) -> None:
             arrowcolor=MUTED,
             padding=(6, 5),
         )
-        style.map(
-            name,
-            bordercolor=[("focus", ACCENT)],
-            lightcolor=[("focus", SURFACE_ALT)],
-            darkcolor=[("focus", SURFACE_ALT)],
-        )
+        style.map(name, bordercolor=[("focus", ACCENT)], lightcolor=[("focus", SURFACE_ALT)])
 
     style.configure(
         "TCombobox",
@@ -175,8 +174,6 @@ def apply_theme(root: tk.Tk) -> None:
         selectbackground=[("readonly", SURFACE_ALT)],
         selectforeground=[("readonly", TEXT)],
         bordercolor=[("focus", ACCENT), ("readonly", BORDER)],
-        lightcolor=[("readonly", SURFACE_ALT)],
-        darkcolor=[("readonly", SURFACE_ALT)],
     )
 
     style.configure(
@@ -184,7 +181,7 @@ def apply_theme(root: tk.Tk) -> None:
         background=SURFACE,
         fieldbackground=SURFACE,
         foreground=TEXT,
-        rowheight=28,
+        rowheight=27,
         borderwidth=0,
         bordercolor=SURFACE,
         lightcolor=SURFACE,
@@ -197,13 +194,9 @@ def apply_theme(root: tk.Tk) -> None:
         relief="flat",
         borderwidth=0,
         padding=(6, 6),
-        font=(family, 10, "bold"),
+        font=(family, 9, "bold"),
     )
-    style.map(
-        "Treeview",
-        background=[("selected", ACCENT)],
-        foreground=[("selected", ON_ACCENT)],
-    )
+    style.map("Treeview", background=[("selected", ACCENT)], foreground=[("selected", ON_ACCENT)])
     style.map("Treeview.Heading", background=[("active", SURFACE_ALT)])
 
     style.configure(
@@ -220,20 +213,10 @@ def apply_theme(root: tk.Tk) -> None:
     style.map(
         "TCheckbutton",
         background=[("active", BG)],
-        foreground=[("active", TEXT)],
         indicatorbackground=[("selected", ACCENT), ("pressed", BORDER)],
         indicatorforeground=[("selected", ON_ACCENT)],
     )
 
-    style.configure(
-        "Timer.Horizontal.TProgressbar",
-        background=ACCENT,
-        troughcolor=SURFACE_ALT,
-        bordercolor=SURFACE_ALT,
-        lightcolor=ACCENT,
-        darkcolor=ACCENT,
-        thickness=8,
-    )
     style.configure(
         "Vertical.TScrollbar",
         background=SURFACE_ALT,
@@ -245,7 +228,14 @@ def apply_theme(root: tk.Tk) -> None:
         gripcount=0,
         arrowsize=12,
     )
-    style.map(
-        "Vertical.TScrollbar",
-        background=[("pressed", BORDER), ("active", BORDER)],
+    style.map("Vertical.TScrollbar", background=[("pressed", BORDER), ("active", BORDER)])
+
+    style.configure(
+        "Status.Horizontal.TProgressbar",
+        background=ACCENT,
+        troughcolor=SURFACE_ALT,
+        bordercolor=SURFACE_ALT,
+        lightcolor=ACCENT,
+        darkcolor=ACCENT,
+        thickness=4,
     )

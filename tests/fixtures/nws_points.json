@@ -1,0 +1,86 @@
+{
+ "@context": [
+  "https://geojson.org/geojson-ld/geojson-context.jsonld",
+  {
+   "@version": "1.1",
+   "wx": "https://api.weather.gov/ontology#",
+   "s": "https://schema.org/",
+   "geo": "http://www.opengis.net/ont/geosparql#",
+   "unit": "http://codes.wmo.int/common/unit/",
+   "@vocab": "https://api.weather.gov/ontology#",
+   "geometry": {
+    "@id": "s:GeoCoordinates",
+    "@type": "geo:wktLiteral"
+   },
+   "city": "s:addressLocality",
+   "state": "s:addressRegion",
+   "distance": {
+    "@id": "s:Distance",
+    "@type": "s:QuantitativeValue"
+   },
+   "bearing": {
+    "@type": "s:QuantitativeValue"
+   },
+   "value": {
+    "@id": "s:value"
+   },
+   "unitCode": {
+    "@id": "s:unitCode",
+    "@type": "@id"
+   },
+   "forecastOffice": {
+    "@type": "@id"
+   },
+   "forecastGridData": {
+    "@type": "@id"
+   },
+   "publicZone": {
+    "@type": "@id"
+   },
+   "county": {
+    "@type": "@id"
+   }
+  }
+ ],
+ "id": "https://api.weather.gov/points/43.1448,-77.512",
+ "type": "Feature",
+ "geometry": {
+  "type": "Point",
+  "coordinates": [
+   -77.512,
+   43.1448
+  ]
+ },
+ "properties": {
+  "gridId": "BUF",
+  "gridX": 80,
+  "gridY": 64,
+  "forecast": "https://api.weather.gov/gridpoints/BUF/80,64/forecast",
+  "forecastHourly": "https://api.weather.gov/gridpoints/BUF/80,64/forecast/hourly",
+  "observationStations": "https://api.weather.gov/gridpoints/BUF/80,64/stations",
+  "relativeLocation": {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -77.5809761,
+     43.1184982
+    ]
+   },
+   "properties": {
+    "city": "Brighton",
+    "state": "NY",
+    "distance": {
+     "unitCode": "wmoUnit:m",
+     "value": 378.10560020521
+    },
+    "bearing": {
+     "unitCode": "wmoUnit:degree_(angle)",
+     "value": 62
+    }
+   }
+  },
+  "timeZone": "America/New_York",
+  "radarStation": "KBUF"
+ }
+}
