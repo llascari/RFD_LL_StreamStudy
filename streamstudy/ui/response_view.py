@@ -512,13 +512,14 @@ class ResponseView(ttk.Frame):
             data = self.app.flow_metrics.get(site.number)
             if not data:
                 return "Stored for this site: none"
+            missing = "\u2014"  # Python 3.10 forbids backslashes inside f-string braces.
             return (
                 "Stored for this site:\n"
-                f"  rise vs baseflow: {data.get('rise_pct_base', '\u2014')}%\n"
-                f"  rise vs peak: {data.get('rise_pct_peak', '\u2014')}%\n"
-                f"  24 h decay: {data.get('decay_24h_pct', '\u2014')}% of storm flow\n"
-                f"  peak {data.get('peak_cfs', '\u2014')} cfs \u00b7 rain "
-                f"{data.get('rain_in', '\u2014')} in"
+                f"  rise vs baseflow: {data.get('rise_pct_base', missing)}%\n"
+                f"  rise vs peak: {data.get('rise_pct_peak', missing)}%\n"
+                f"  24 h decay: {data.get('decay_24h_pct', missing)}% of storm flow\n"
+                f"  peak {data.get('peak_cfs', missing)} cfs \u00b7 rain "
+                f"{data.get('rain_in', missing)} in"
             )
 
         stored_var.set(stored_text())
