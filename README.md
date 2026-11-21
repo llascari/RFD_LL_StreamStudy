@@ -293,7 +293,7 @@ RFD_LL_StreamStudy/
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
 │   └── test_*.py          # 122 tests (providers, models, correlation, temperature, ranking, Tk)
-├── docs/                  # screenshots
+├── docs/                  # screenshots + HOW_THIS_WAS_MADE.md build log
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── pyproject.toml
 └── .github/workflows/ci.yml
@@ -322,7 +322,9 @@ response model is tested on synthetic storm series where the true response (150 
 the human maintainer. Essentially all of the code, tests, documentation, CI configuration and
 screenshots were written by an LLM — **DeepSeek V4.1 Flash** running in **LM Studio Bionic**,
 the agentic coding harness of the [LM Studio](https://lmstudio.ai/) desktop app. The in-app
-**About** button shows the same note. See [CREDITS.md](CREDITS.md) for the per-area log.
+**About** button shows the same note. See [CREDITS.md](CREDITS.md) for the per-area log, and
+**[How this was made](docs/HOW_THIS_WAS_MADE.md)** for the prompt-by-prompt build story, dead ends
+and a recipe you can copy.
 
 ## Attribution
 
