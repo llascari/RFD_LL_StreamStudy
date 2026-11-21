@@ -132,25 +132,76 @@ Notes:
 
 ## Quick start
 
-Requires Python **3.10+** with Tk support (on Debian/Ubuntu: `sudo apt install python3-tk`).
+**New to Python or Git?** Follow the step-by-step, copy-and-paste guide in
+[INSTALL.md](INSTALL.md) — Windows, macOS and Linux, including how to install Python and Tk,
+open a terminal, download the project as a ZIP, and fix common errors.
+
+**What you need:** Python 3.10+ with Tk (the official Windows/macOS installers include it), the
+project folder, and an internet connection. Git is optional.
+
+### 1. Get the project
+
+- **No Git:** on the GitHub page use **Code → Download ZIP**, then extract it.
+- **With Git:**
+
+  ```bash
+  git clone https://github.com/llascari/RFD_LL_StreamStudy.git
+  cd RFD_LL_StreamStudy
+  ```
+
+### 2. Install Python (and Tk)
+
+| Platform | Command / installer |
+| --- | --- |
+| Windows | [python.org installer](https://www.python.org/downloads/windows/) — tick **Add python.exe to PATH** (or `winget install --id Python.Python.3.12 -e`) |
+| macOS | [python.org installer](https://www.python.org/downloads/macos/) (includes Tk), or `brew install python-tk@3.12` |
+| Ubuntu / Debian | `sudo apt install -y python3 python3-tk git` |
+| Fedora | `sudo dnf install -y python3 python3-tkinter git` |
+| Arch | `sudo pacman -S --needed python tk git` |
+
+Verify (expect a Python version and `Tk 8.6`):
 
 ```bash
-git clone git@github.com:llascari/RFD_LL_StreamStudy.git
-cd RFD_LL_StreamStudy
+python3 --version
+python3 -c "import tkinter; print('Tk', tkinter.TkVersion)"
+```
+
+On Windows use `python` instead of `python3`.
+
+### 3. Run it
+
+Open a terminal **in the project folder** that contains `README.md`:
+
+```powershell
+# Windows (PowerShell)
+cd "$HOME\Documents\RFD_LL_StreamStudy-main"
 python -m streamstudy
+```
+
+```bash
+# macOS / Linux
+cd ~/Documents/RFD_LL_StreamStudy-main
+python3 -m streamstudy
+```
+
+The app opens on USGS `0423205010` (Irondequoit Creek, Rochester NY) and loads data in the
+background. Try another gage with `--site`:
+
+```bash
+python3 -m streamstudy --site 0423205010 --days 30
 ```
 
 Command line options:
 
 ```bash
-python -m streamstudy --site 0423205010 --days 14
-python -m streamstudy --help
+python3 -m streamstudy --site 0423205010 --days 14
+python3 -m streamstudy --help
 ```
 
-Editable install (adds a `streamstudy` command):
+Editable install (optional; adds a `streamstudy` command):
 
 ```bash
-python -m pip install -e .
+python3 -m pip install -e .
 streamstudy --site 0423205010
 ```
 
@@ -209,6 +260,7 @@ RFD_LL_StreamStudy/
 │   ├── fixtures/          # trimmed real API responses
 │   └── test_*.py          # 95 tests (providers, models, correlation, map, name search, Tk smoke)
 ├── docs/                  # screenshots
+├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── pyproject.toml
 └── .github/workflows/ci.yml
 ```

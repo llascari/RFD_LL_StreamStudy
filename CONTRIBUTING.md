@@ -6,6 +6,8 @@ agent-facing guide (architecture, invariants, gotchas).
 
 ## Development setup
 
+New to Python/Git? Start with the beginner-friendly [INSTALL.md](INSTALL.md).
+
 - Python **3.10+** with Tk (`sudo apt install python3-tk` on Debian/Ubuntu).
 - No dependencies to install — the app and tests use the standard library only.
 - Optional: `python3 -m pip install -e .` to get a `streamstudy` command.
