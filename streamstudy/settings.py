@@ -14,12 +14,16 @@ DEFAULTS = {
     "recent_sites": [DEFAULT_SITE],
     "days": 14,
     "history_years": 3,
+    "map_radius": 0.5,
+    "map_years": 2,
     "coco_station": "",
     "state": "NY",
 }
 
 ALLOWED_DAYS = (7, 14, 30, 60)
 ALLOWED_HISTORY_YEARS = (2, 3, 5, 10)
+ALLOWED_MAP_RADII = (0.25, 0.5, 1.0, 2.0)
+ALLOWED_MAP_YEARS = (1, 2, 3)
 
 
 def default_settings_path() -> Path:
@@ -48,6 +52,10 @@ def load_settings(path: str | Path | None = None) -> dict:
         data["days"] = DEFAULTS["days"]
     if data["history_years"] not in ALLOWED_HISTORY_YEARS:
         data["history_years"] = DEFAULTS["history_years"]
+    if float(data.get("map_radius", 0.5)) not in ALLOWED_MAP_RADII:
+        data["map_radius"] = DEFAULTS["map_radius"]
+    if data.get("map_years", 2) not in ALLOWED_MAP_YEARS:
+        data["map_years"] = DEFAULTS["map_years"]
     if not isinstance(data["recent_sites"], list):
         data["recent_sites"] = list(DEFAULTS["recent_sites"])
     return data

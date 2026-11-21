@@ -169,6 +169,7 @@ class HistoryBundle:
     flow_days: int
     events: tuple[FlowEvent, ...] = ()
     fit: ResponseFit | None = None
+    precip: tuple[tuple[date, float], ...] = ()
     errors: list[str] = field(default_factory=list)
 
 

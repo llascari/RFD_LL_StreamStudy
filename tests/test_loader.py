@@ -53,6 +53,23 @@ class LoaderTest(unittest.TestCase):
         with self.assertRaises(LookupError):
             build_loader(client).load("00000000")
 
+    def test_regional_analysis(self):
+        site = self.loader.load("0423205010", LoadOptions(days=7)).site
+        other = type(site)(
+            number="04232050", name="Nearby Creek", latitude=43.10, longitude=-77.60
+        )
+        analysis = self.loader.load_regional([site, other], years=2)
+        self.assertEqual(len(analysis.sites), 2)
+        self.assertIn("0423205010", analysis.flow)
+        self.assertEqual(analysis.errors, [])
+        self.assertGreaterEqual(len(analysis.precip_labels), 1)
+
+    def test_history_carries_precip_series(self):
+        site = self.loader.load("0423205010", LoadOptions(days=7)).site
+        history = self.loader.load_history(site, years=3)
+        self.assertTrue(history.precip)
+        self.assertEqual(history.precip, tuple(sorted(history.precip)))
+
     def test_explicit_coco_station(self):
         bundle = self.loader.load(
             "0423205010", LoadOptions(days=7, coco_station="NY-MR-90")

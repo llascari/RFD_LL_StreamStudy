@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import queue
 import threading
 import tkinter as tk
@@ -21,6 +22,7 @@ from .settings import (
 from .ui.forecast_view import ForecastView
 from .ui.home_view import HomeView
 from .ui.hydro_view import HydroView
+from .ui.map_view import MapView, fetch_tiles, tile_coords, zoom_for_radius
 from .ui.precip_view import PrecipView
 from .ui.response_view import ResponseView
 from .ui.sites_view import SitesView
@@ -76,6 +78,14 @@ class StreamStudyApp:
         self.history_loading = False
         self._history_site: str | None = None
         self._history_token = 0
+        self.map_radius = float(self.settings.get("map_radius", 0.5))
+        self.map_years = int(self.settings.get("map_years", 2))
+        self.map_loading = False
+        self._map_site: str | None = None
+        self._map_sites: list = []
+        self._map_token = 0
+        self._regional_token = 0
+        self._regional_gauge = False
         self._token = 0
         self._busy = False
         self._alive = True
@@ -172,6 +182,7 @@ class StreamStudyApp:
         self.hydro_view = HydroView(self.notebook, self)
         self.precip_view = PrecipView(self.notebook, self)
         self.response_view = ResponseView(self.notebook, self)
+        self.map_view = MapView(self.notebook, self)
         self.forecast_view = ForecastView(self.notebook, self)
         self.sites_view = SitesView(self.notebook, self)
         for view, label in (
@@ -179,6 +190,7 @@ class StreamStudyApp:
             (self.hydro_view, "Hydrograph"),
             (self.precip_view, "Precipitation"),
             (self.response_view, "Rainfall \u2192 Flow"),
+            (self.map_view, "Map & Correlation"),
             (self.forecast_view, "Forecast"),
             (self.sites_view, "Site finder"),
         ):
@@ -264,6 +276,7 @@ class StreamStudyApp:
         if callable(clear):
             clear()
         self._history_site = None
+        self._map_site = None
         site = self.bundle.site.number if self.bundle else self.site_var.get()
         self.load_site(site)
 
@@ -292,8 +305,11 @@ class StreamStudyApp:
         self.notebook.select(self.response_view)
 
     def _on_tab_changed(self, _event: tk.Event) -> None:
-        if self.notebook.select() == str(self.response_view):
+        selected = self.notebook.select()
+        if selected == str(self.response_view):
             self._ensure_history()
+        elif selected == str(self.map_view):
+            self._ensure_map()
 
 
     def run_async(self, work, callback) -> None:
@@ -390,18 +406,165 @@ class StreamStudyApp:
         save_settings(self.settings, self.settings_path)
         self.response_view.render(self.bundle)
         fit = result.fit
-        if fit is not None:
+        if self.notebook.select() != str(self.map_view):
+            if fit is not None:
+                self.set_status(
+                    f"Rainfall response: {fit.events} storms \u00b7 {fit.slope:,.0f} cfs/in "
+                    f"\u00b7 lag {fit.lag_p50_hours:.0f} h \u00b7 {result.precip_source}",
+                    tone="muted",
+                )
+            else:
+                self.set_status(
+                    f"Rainfall response: only {len(result.events)} usable storms in "
+                    f"{self.history_years} years \u2014 try a longer history.",
+                    tone="warn",
+                )
+        if self._map_sites and not self._regional_gauge:
+            self.request_regional(force=True)
+
+    # -- regional map and correlations ---------------------------------
+    @staticmethod
+    def _distance_km(first, second) -> float:
+        mean_lat = math.radians((first.latitude + second.latitude) / 2.0)
+        dx = (second.longitude - first.longitude) * 111.0 * math.cos(mean_lat)
+        dy = (second.latitude - first.latitude) * 111.0
+        return math.hypot(dx, dy)
+
+    def _ensure_map(self) -> None:
+        if self.bundle is None:
+            return
+        self.map_view.set_site(self.bundle.site)
+        if self._map_site == self.bundle.site.number or self.map_loading:
+            return
+        self.request_map()
+
+    def request_map(self, force: bool = False) -> None:
+        if self.bundle is None:
+            return
+        site = self.bundle.site
+        if not force and self._map_site == site.number:
+            return
+        radius = self.map_radius
+        self._map_token += 1
+        token = self._map_token
+        self.map_loading = True
+        self._map_site = None
+        self.map_view.show_map_loading()
+        bbox = (
+            site.longitude - radius * 1.6,
+            site.latitude - radius * 1.1,
+            site.longitude + radius * 1.6,
+            site.latitude + radius * 1.1,
+        )
+        zoom = zoom_for_radius(radius)
+
+        def work():
+            sites = self.providers["usgs"].search_sites(bbox=bbox, limit=200)
+            ordered = []
+            seen = set()
+            for candidate in (site, *sites):
+                if candidate.number in seen:
+                    continue
+                seen.add(candidate.number)
+                ordered.append(candidate)
+            tiles = fetch_tiles(
+                self.client, tile_coords(site.latitude, site.longitude, radius, zoom)
+            )
+            return ordered, tiles
+
+        self.run_async(
+            work, lambda result, error: self._finish_map(token, site, radius, result, error)
+        )
+
+    def _finish_map(self, token: int, site, radius: float, result, error) -> None:
+        if token != self._map_token:
+            return
+        self.map_loading = False
+        if error is not None:
+            self.set_status(f"Map: {error}", tone="bad")
+            return
+        sites, tiles = result
+        self._map_sites = list(sites)
+        self._map_site = site.number
+        self.map_view.set_map(
+            (site.latitude, site.longitude), radius, self._map_sites, tiles, site.number
+        )
+        self.request_regional()
+
+    def request_regional(self, force: bool = False) -> None:
+        if not self._map_sites or self.bundle is None:
+            return
+        site = self.bundle.site
+        chosen = sorted(
+            self._map_sites,
+            key=lambda candidate: self._distance_km(site, candidate),
+        )[:6]
+        if all(candidate.number != site.number for candidate in chosen):
+            chosen[-1] = site
+        self._regional_token += 1
+        token = self._regional_token
+        self.map_view.show_correlation_loading()
+        history = self.bundle.history
+        # Only pass a *gauge* record as an extra source; ERA5 is already the
+        # regional series and would otherwise appear twice.
+        gauge = None
+        label = "CoCoRaHS gauge"
+        if history and history.precip and not history.precip_source.startswith("Open-Meteo"):
+            gauge = dict(history.precip)
+            label = history.precip_source
+        self._regional_gauge = gauge is not None
+        years = self.map_years
+
+        def work():
+            return self.loader.load_regional(
+                chosen,
+                years=years,
+                gauge_series=gauge,
+                gauge_label=label,
+                max_gages=6,
+            )
+
+        self.run_async(
+            work, lambda result, error: self._finish_regional(token, result, error)
+        )
+
+    def _finish_regional(self, token: int, result, error) -> None:
+        if token != self._regional_token:
+            return
+        if error is not None:
+            self.set_status(f"Correlation: {error}", tone="bad")
+            return
+        self.map_view.set_correlation(result)
+        if self.notebook.select() == str(self.map_view):
+            tail = ""
+            strongest = result.strongest_pairs(1)
+            if strongest:
+                first, second, correlation = strongest[0]
+                tail = (
+                    f" \u00b7 strongest {result.short_label(first)}"
+                    f"\u2194{result.short_label(second)} r {correlation.r:+.2f}"
+                )
             self.set_status(
-                f"Rainfall response: {fit.events} storms \u00b7 {fit.slope:,.0f} cfs/in "
-                f"\u00b7 lag {fit.lag_p50_hours:.0f} h \u00b7 {result.precip_source}",
+                f"Regional: {len(result.flow)} gages \u00b7 "
+                f"{len(result.rain_pairs)} rain pairs{tail}",
                 tone="muted",
             )
-        else:
-            self.set_status(
-                f"Rainfall response: only {len(result.events)} usable storms in "
-                f"{self.history_years} years \u2014 try a longer history.",
-                tone="warn",
-            )
+
+    def set_map_radius(self, radius: float) -> None:
+        self.map_radius = float(radius)
+        self.settings["map_radius"] = self.map_radius
+        save_settings(self.settings, self.settings_path)
+        self._map_site = None
+        self.request_map(force=True)
+
+    def set_map_years(self, years: int) -> None:
+        self.map_years = int(years)
+        self.settings["map_years"] = self.map_years
+        save_settings(self.settings, self.settings_path)
+        self.request_regional(force=True)
+
+    def show_map(self) -> None:
+        self.notebook.select(self.map_view)
 
     def apply_bundle(self, bundle: DataBundle) -> None:
         self.bundle = bundle
@@ -437,6 +600,7 @@ class StreamStudyApp:
         self.site_combo.configure(values=self.settings["recent_sites"])
         save_settings(self.settings, self.settings_path)
         self._ensure_history()
+        self._ensure_map()
 
     def _update_source_dots(self, bundle: DataBundle) -> None:
         availability = {

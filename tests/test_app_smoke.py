@@ -72,6 +72,7 @@ class AppSmokeTest(unittest.TestCase):
                 "Hydrograph",
                 "Precipitation",
                 "Rainfall \u2192 Flow",
+                "Map & Correlation",
                 "Forecast",
                 "Site finder",
             ],

@@ -29,6 +29,9 @@ class StaticClient:
     def get_json(self, url: str, params: dict | None = None) -> dict:
         return json.loads(self.get_text(url, params))
 
+    def get_bytes(self, url: str, params: dict | None = None) -> bytes:
+        return self.get_text(url, params).encode("utf-8")
+
     def clear_cache(self) -> None:
         return None
 

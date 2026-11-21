@@ -7,6 +7,8 @@ Enter any USGS site number (the default is [0423205010, Irondequoit Creek above 
 Rochester, NY](https://waterdata.usgs.gov/monitoring-location/USGS-0423205010/)) to see the
 hydrograph, nearby gauge rain reports, the official forecast, and — the interesting part — how
 **past storms moved this stream**, plus a first-order estimate of what the forecast rain would do.
+A clickable regional map adds **cross-correlation between neighbouring streams and the rain that
+feeds them**.
 
 | Overview | Hydrograph |
 | --- | --- |
@@ -20,6 +22,8 @@ hydrograph, nearby gauge rain reports, the official forecast, and — the intere
 | --- | --- |
 | ![Forecast tab](docs/forecast.png) | ![Site finder](docs/sites.png) |
 
+![Map and correlation tab](docs/map.png)
+
 ## Features
 
 - **Hydrograph** — discharge and gage height from USGS instantaneous values, with a log-scale
@@ -31,6 +35,9 @@ hydrograph, nearby gauge rain reports, the official forecast, and — the intere
   response: storms detected, response rate (cfs per inch), time to peak, recession half-life,
   a rainfall-vs-rise scatter with the storm examples behind the fit, and a forecast-driven
   predicted hydrograph with a 10–90 % band and the most similar past storms
+- **Map & Correlation** — an OpenStreetMap basemap of nearby gages (0.25°–2° radius) where every
+  dot is clickable; pair up to six regional streams by lagged log-flow correlation (±5 days) and
+  correlate each stream with ERA5, the CoCoRaHS gauge and any on-site USGS rain gauge
 - **Forecast** — NWS daily periods with full discussion text, plus the NWS gridpoint
   **quantitative precipitation forecast** (6-hourly bars) and peak precipitation probability
 - **Site finder** — search active USGS surface-water gages by state, or within ~50 km of the
@@ -62,6 +69,23 @@ account for soil moisture, snowmelt, seasonality, or upstream routing, and it wo
 resolution — the band is the honest expression of that. Treat it as a screening tool and a way to
 see how this particular stream has behaved, not as a flood forecast.
 
+## Regional map and cross-correlation
+
+The **Map & Correlation** tab puts the nearby gages on an OpenStreetMap basemap; click any dot to
+load that stream. For the current view it then:
+
+- fetches 1–3 years of **daily mean flow** for the six gages nearest the loaded site;
+- computes pairwise **log-flow Pearson r at the best lag within ±5 days** — a positive lag means
+  the second gage peaks later than the first (downstream travel time, attenuation, or storage);
+- correlates each stream's flow with up to three **rain sources**: ERA5 at the map centre, the
+  multi-year CoCoRaHS gauge record, and USGS on-site precipitation (`00045`) where a gage reports it;
+- shows a signed heatmap, the strongest pairs, and a ranked rain-correlation table.
+
+High correlation at lag 0 means the streams respond together to the same storms. Positive lags
+suggest attenuation or routing; weak or negative correlations usually mean regulation (dams,
+diversions), different storm tracks, or short/gappy records. The map radius, history length and
+recomputation are all interactive.
+
 ## Data sources and APIs
 
 Everything comes from documented, structured APIs — no HTML scraping:
@@ -74,7 +98,8 @@ Everything comes from documented, structured APIs — no HTML scraping:
 | **USGS Water Data** | `api.waterdata.usgs.gov/ogcapi/v0/…` | The newer OGC API — verified working; NWIS IV is used for its broader parameter coverage | none |
 | **NWS** | `api.weather.gov/points/…`, `/gridpoints/…`, `/stations/…/observations` | Nearest ASOS observations, daily/hourly forecast, gridpoint QPF | none (User-Agent required) |
 | **Open-Meteo** | `api.open-meteo.com/v1/forecast` | Hourly precipitation + probability, daily sums (past 60 days, 2-day forecast) | none |
-| **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse) | none |
+| **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse; regional rain series) | none |
+| **OpenStreetMap** | `tile.openstreetmap.org/{z}/{x}/{y}.png` | Basemap tiles for the map tab (6–24 tiles per view, cached in memory) | none; attribution required |
 | **CoCoRaHS** | `data.cocorahs.org/cocorahs/export/exportreports.aspx` | Volunteer 24-hour gauge reports: recent comparison, nearest-gauge search, and multi-year history | none |
 
 Notes:
@@ -85,6 +110,8 @@ Notes:
 - CoCoRaHS also publishes a JSON API at `api2.cocorahs.org`; it resolved IPv6-only and timed out
   from our test network, so the app uses the official bulk CSV export endpoint instead. Both are
   documented public interfaces, not screen-scraping.
+- Map tiles are fetched only for the visible view and cached for five minutes. If the tile server
+  is unreachable, the map falls back to a schematic grid with the same clickable gage positions.
 - USGS values are **provisional** and may be revised. CoCoRaHS gauges report 24-hour totals at the
   observer's reading time (~7 AM local), so daily alignment is approximate. Open-Meteo is a
   gridded model, not a gauge.
@@ -158,14 +185,15 @@ RFD_LL_StreamStudy/
 │   ├── loader.py          # per-source fetch orchestration + history analysis
 │   ├── models.py          # Site, Series, FlowEvent, ResponseFit, DataBundle…
 │   ├── response.py        # rainfall-runoff model: baseflow, storms, fit, prediction
+│   ├── correlation.py     # lagged cross-correlation of regional flows and rain
 │   ├── analysis.py        # aggregation and formatting helpers
 │   ├── http.py            # cached, retrying urllib client
 │   ├── settings.py        # JSON settings (recent sites, window, history years)
 │   ├── providers/         # usgs.py · nws.py · openmeteo.py · cocorahs.py
-│   └── ui/                # theme, charts, widgets and the six views
+│   └── ui/                # theme, charts, widgets and the seven views (incl. map_view)
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 72 tests (providers, response model, loader, Tk smoke)
+│   └── test_*.py          # 83 tests (providers, models, correlation, map, Tk smoke)
 ├── docs/                  # screenshots
 ├── pyproject.toml
 └── .github/workflows/ci.yml
@@ -193,7 +221,8 @@ response model is tested on synthetic storm series where the true response (150 
 Data courtesy of the [USGS National Water Information System](https://waterservices.usgs.gov/),
 the [National Weather Service](https://www.weather.gov/documentation/services-web-api),
 [Open-Meteo](https://open-meteo.com/) (CC BY 4.0), and
-[CoCoRaHS](https://www.cocorahs.org/) (CC BY 4.0).
+[CoCoRaHS](https://www.cocorahs.org/) (CC BY 4.0). Map tiles by
+[OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL).
 
 ## License
 

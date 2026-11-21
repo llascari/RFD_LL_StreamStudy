@@ -6,7 +6,6 @@ import argparse
 import tkinter as tk
 
 from .app import StreamStudyApp
-from .providers import build_providers
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,9 +35,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run(site: str | None = None, days: int | None = None, settings_path: str | None = None) -> int:
     root = tk.Tk()
-    app = StreamStudyApp(
-        root, build_providers(), settings_path=settings_path, auto_load=False
-    )
+    app = StreamStudyApp(root, settings_path=settings_path, auto_load=False)
     if days is not None:
         app.set_days(days)
     target = site or str(app.settings.get("last_site", "0423205010"))

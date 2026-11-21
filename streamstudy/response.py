@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
-from .analysis import mm_to_inches
+from .analysis import mm_to_inches, pearson
 from .models import DataBundle, FlowEvent, ResponseFit, Series, utc_now
 
 MIN_RAIN_IN = 0.10
@@ -42,20 +42,6 @@ def percentile(values: list[float], fraction: float) -> float:
     if low == high:
         return ordered[low]
     return ordered[low] * (high - position) + ordered[high] * (position - low)
-
-
-def _pearson(xs: list[float], ys: list[float]) -> float:
-    count = len(xs)
-    if count < 2:
-        return 0.0
-    mean_x = sum(xs) / count
-    mean_y = sum(ys) / count
-    covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    var_x = math.sqrt(sum((x - mean_x) ** 2 for x in xs))
-    var_y = math.sqrt(sum((y - mean_y) ** 2 for y in ys))
-    if var_x == 0 or var_y == 0:
-        return 0.0
-    return covariance / (var_x * var_y)
 
 
 # --------------------------------------------------------------------------- #
@@ -210,7 +196,7 @@ def fit_response(events: list[FlowEvent]) -> ResponseFit | None:
     ratios = sorted(event.rise_cfs / event.rain_in for event in usable)
     logs_x = [math.log(event.rain_in) for event in usable]
     logs_y = [math.log(event.rise_cfs) for event in usable]
-    r_squared = max(0.0, _pearson(logs_x, logs_y)) ** 2
+    r_squared = max(0.0, pearson(logs_x, logs_y)) ** 2
 
     lags = sorted(event.lag_hours for event in usable)
     half_lives = [

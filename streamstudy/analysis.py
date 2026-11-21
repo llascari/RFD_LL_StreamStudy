@@ -33,6 +33,21 @@ def sum_by_day(samples, tz: tzinfo | None = None, *, scale: float = 1.0) -> dict
     return totals
 
 
+def pearson(xs: list[float], ys: list[float]) -> float:
+    """Pearson correlation coefficient; 0.0 when either series is flat."""
+    count = len(xs)
+    if count < 2 or count != len(ys):
+        return 0.0
+    mean_x = sum(xs) / count
+    mean_y = sum(ys) / count
+    covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    var_x = math.sqrt(sum((x - mean_x) ** 2 for x in xs))
+    var_y = math.sqrt(sum((y - mean_y) ** 2 for y in ys))
+    if var_x == 0 or var_y == 0:
+        return 0.0
+    return covariance / (var_x * var_y)
+
+
 def series_stats(series: Series) -> SeriesStats | None:
     values = [sample.value for sample in series.valid]
     if not values:

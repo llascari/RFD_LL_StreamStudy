@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 from .analysis import mm_to_inches
+from .correlation import RegionalAnalysis, build_regional
 from .models import DataBundle, GaugeStation, HistoryBundle, Site, utc_now
 from .response import analyse_history
 from .providers.cocorahs import CoCoRaHSProvider
@@ -182,7 +183,9 @@ class BundleLoader:
                     site.latitude, site.longitude, start, end
                 )
                 precip = {
-                    day: mm_to_inches(millimetres) for day, millimetres in archive.daily
+                    day: mm_to_inches(millimetres)
+                    for day, millimetres in archive.daily
+                    if start <= day <= end
                 }
                 source = "Open-Meteo ERA5"
             except Exception as exc:  # noqa: BLE001
@@ -197,5 +200,69 @@ class BundleLoader:
             flow_days=len(flow),
             events=tuple(events),
             fit=fit,
+            precip=tuple(sorted(precip.items())),
+            errors=errors,
+        )
+
+    def load_regional(
+        self,
+        sites: list[Site],
+        *,
+        years: int = 2,
+        gauge_series: dict[date, float] | None = None,
+        gauge_label: str = "CoCoRaHS gauge",
+        max_gages: int = 6,
+        max_lag: int = 5,
+    ) -> RegionalAnalysis:
+        """Daily flows for nearby gages and their correlation with rain/flow."""
+        years = max(1, min(int(years), 10))
+        end = date.today() - timedelta(days=1)
+        try:
+            start = end.replace(year=end.year - years)
+        except ValueError:
+            start = end.replace(year=end.year - years, day=28)
+
+        chosen = tuple(sites[: max(1, int(max_gages))])
+        flows: dict[str, dict[date, float]] = {}
+        onsite: dict[str, dict[date, float]] = {}
+        errors: list[str] = []
+        for site in chosen:
+            try:
+                daily = self.usgs.fetch_daily(
+                    site.number, start, end, ("00060", "00045")
+                )
+                if "00060" in daily:
+                    flows[site.number] = daily["00060"]
+                if "00045" in daily:
+                    onsite[f"USGS {site.number}"] = daily["00045"]
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"USGS {site.number}: {exc}")
+
+        precip: dict[str, dict[date, float]] = {}
+        if chosen:
+            latitude = sum(site.latitude for site in chosen) / len(chosen)
+            longitude = sum(site.longitude for site in chosen) / len(chosen)
+            try:
+                archive = self.openmeteo.fetch_archive(
+                    latitude, longitude, start, end
+                )
+                precip["ERA5 (map centre)"] = {
+                    day: mm_to_inches(millimetres)
+                    for day, millimetres in archive.daily
+                    if start <= day <= end
+                }
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"ERA5: {exc}")
+        if gauge_series:
+            precip[gauge_label] = dict(gauge_series)
+        precip.update(onsite)
+
+        return build_regional(
+            chosen,
+            flows,
+            precip,
+            start=start,
+            end=end,
+            max_lag=max_lag,
             errors=errors,
         )

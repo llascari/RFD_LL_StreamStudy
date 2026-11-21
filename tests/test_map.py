@@ -1,0 +1,149 @@
+"""Map canvas, heatmap and click-to-load tests (no network, no tiles required)."""
+
+import math
+import unittest
+from datetime import date, timedelta
+
+try:
+    import tkinter as tk
+except Exception:  # pragma: no cover
+    tk = None
+
+from streamstudy.correlation import build_regional
+from streamstudy.models import Site
+from streamstudy.ui.map_view import MapView
+
+START = date(2025, 1, 1)
+
+# 1x1 transparent-ish PNG, enough to exercise PhotoImage decoding.
+TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+    "01f15c4890000000d49444154789c6360000002000154a24f5f0000000049454e44ae426082"
+)
+
+
+class StubApp:
+    map_radius = 0.5
+    map_years = 2
+
+    def __init__(self) -> None:
+        self.loaded: list[str] = []
+
+    def load_site(self, number: str) -> None:
+        self.loaded.append(number)
+
+    def set_map_radius(self, radius: float) -> None:  # pragma: no cover
+        self.map_radius = radius
+
+    def set_map_years(self, years: int) -> None:  # pragma: no cover
+        self.map_years = years
+
+    def request_map(self, force: bool = False) -> None:  # pragma: no cover
+        return None
+
+    def request_regional(self, force: bool = False) -> None:  # pragma: no cover
+        return None
+
+
+def wave(days: int = 240, phase: float = 0.0) -> dict[date, float]:
+    return {
+        START + timedelta(days=index): 50.0 + 20.0 * math.sin((index + phase) / 5.0)
+        for index in range(days)
+    }
+
+
+@unittest.skipIf(tk is None, "tkinter is not available")
+class MapWidgetTest(unittest.TestCase):
+    def setUp(self):
+        try:
+            self.root = tk.Tk()
+        except tk.TclError as exc:  # pragma: no cover
+            self.skipTest(f"no display available: {exc}")
+        self.root.geometry("1100x800")
+        self.root.deiconify()
+        self.app = StubApp()
+        self.view = MapView(self.root, self.app)
+        self.view.pack(fill="both", expand=True)
+        self.site = Site(
+            "0423205010",
+            "IRONDEQUOIT CR ABOVE BLOSSOM RD",
+            43.1448,
+            -77.5120,
+            state="NY",
+            site_type="Stream",
+            drainage_area_sq_mi=142.0,
+        )
+        self.other = Site(
+            "04232050", "ALLEN CREEK AT ROCHESTER", 43.10, -77.60, state="NY"
+        )
+        self.root.update()
+
+    def tearDown(self):
+        self.root.destroy()
+
+    def test_markers_and_tiles_draw(self):
+        self.view.set_map(
+            (self.site.latitude, self.site.longitude),
+            0.5,
+            [self.site, self.other],
+            {(10, 1, 1): TINY_PNG},
+            self.site.number,
+        )
+        self.root.update()
+        items = self.view.map.find_all()
+        self.assertGreater(len(items), 0)
+        self.assertEqual(len(self.view._sites), 2)
+        self.assertEqual(self.view.map._nearest(*self.view.map._site_pixel(self.other)), self.other)
+
+    def test_marker_click_loads_site(self):
+        self.view.set_map(
+            (self.site.latitude, self.site.longitude),
+            0.5,
+            [self.site, self.other],
+            {},
+            self.site.number,
+        )
+        self.root.update()
+        x, y = self.view.map._site_pixel(self.other)
+
+        class Event:
+            pass
+
+        event = Event()
+        event.x, event.y = x, y
+        self.view.map._on_click(event)
+        self.assertEqual(self.app.loaded, [self.other.number])
+
+    def test_heatmap_and_rain_table(self):
+        sites = (
+            self.site,
+            self.other,
+            Site("04232060", "RED CREEK", 43.25, -77.40),
+        )
+        flows = {
+            "0423205010": wave(phase=0),
+            "04232050": wave(phase=15),
+            "04232060": wave(phase=0),
+        }
+        rain = {
+            START + timedelta(days=index): max(
+                0.0, 0.3 + 0.3 * math.sin(index / 7.0)
+            )
+            for index in range(240)
+        }
+        analysis = build_regional(
+            sites,
+            flows,
+            {"ERA5": rain, "CoCoRaHS NY-MR-61": rain},
+            start=START,
+            end=START + timedelta(days=239),
+        )
+        self.view.set_correlation(analysis)
+        self.root.update()
+        self.assertGreater(len(self.view.heatmap.find_all()), 0)
+        self.assertGreaterEqual(len(self.view.rain_tree.get_children()), 3)
+        self.assertIn("Strongest pairs", self.view.pairs_var.get())
+
+
+if __name__ == "__main__":
+    unittest.main()
