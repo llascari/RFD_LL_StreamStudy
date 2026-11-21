@@ -64,6 +64,7 @@ class AppSmokeTest(unittest.TestCase):
             providers,
             settings_path=str(Path(self.tmp.name) / "settings.json"),
             auto_load=False,
+            auto_update_check=False,
         )
         self.bundle = self.app.loader.load("0423205010", LoadOptions(days=14))
         self.app.apply_bundle(self.bundle)
@@ -75,6 +76,27 @@ class AppSmokeTest(unittest.TestCase):
         except tk.TclError:  # pragma: no cover
             pass
         self.tmp.cleanup()
+
+    def test_update_banner(self):
+        from streamstudy.updates import UpdateStatus
+
+        status = UpdateStatus(
+            available=True,
+            method="git",
+            local="a" * 40,
+            remote="b" * 40,
+            remote_date="2026-11-21T12:00:00Z",
+            url="https://github.com/llascari/RFD_LL_StreamStudy",
+        )
+        self.app._finish_update_check(status, None, False)
+        self.assertIn("Update available", self.app.update_label.cget("text"))
+        self.assertIn("Update available", self.app.status_label.cget("text"))
+
+        current = UpdateStatus(
+            available=False, method="git", local="b" * 40, remote="b" * 40
+        )
+        self.app._finish_update_check(current, None, False)
+        self.assertEqual(self.app.update_label.cget("text"), "")
 
     def test_site_pulldown_shows_names(self):
         self.assertIn("IRONDEQUOIT", self.app.site_var.get())

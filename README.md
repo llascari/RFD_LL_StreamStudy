@@ -69,6 +69,8 @@ feeds them**.
   render, and the failure is shown as a warning instead of a broken window
 - **Fast and polite** — background threads (results marshalled through a queue, never touching Tk
   from a worker), in-memory HTTP cache, one retry on transient 5xx/network errors
+- **Update aware** — checks GitHub on launch (git commit or `VERSION`), shows a footer notice with
+  copyable update commands, and documents updating, reverting and forking
 
 ## The rainfall → flow model
 
@@ -247,6 +249,20 @@ saved metrics and preferences, and keeps the current site loaded.
 
 Override the file location with `--settings PATH` or `$STREAMSTUDY_SETTINGS`.
 
+## Updating, reverting and forking
+
+The app checks GitHub once after launch and shows **“Update available (commit …)”** in the footer
+when a newer version exists; click it or use **Help → Check for updates…** for copyable commands.
+
+- **Update**: `git pull` in a clone, or download/replace the ZIP — settings are kept
+- **Revert**: `git log --oneline`, then `git checkout <commit>`; or download
+  `…/archive/<commit>.zip`
+- **Fork**: fork on GitHub, change `APP_NAME` and `REPO` in `streamstudy/updates.py`, keep the
+  MIT license, attribution and experimental warning
+
+Full details (including dirty-tree handling and running variants side by side):
+**[UPDATING.md](docs/UPDATING.md)**.
+
 ## How it works
 
 ```
@@ -286,6 +302,7 @@ RFD_LL_StreamStudy/
 │   ├── correlation.py     # lagged cross-correlation of regional flows and rain
 │   ├── temperature_stats.py # hours above a threshold, clear-day counts
 │   ├── ranking.py         # "best nearby gage" scoring and hub suggestion
+│   ├── updates.py         # GitHub commit/VERSION update check
 │   ├── analysis.py        # aggregation and formatting helpers
 │   ├── http.py            # cached, retrying urllib client
 │   ├── settings.py        # JSON settings (recent sites, window, history years)
@@ -293,9 +310,10 @@ RFD_LL_StreamStudy/
 │   └── ui/                # theme, charts, widgets and nine tab views (incl. map_view)
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 122 tests (providers, models, correlation, temperature, ranking, Tk)
-├── docs/                  # screenshots + HOW_THIS_WAS_MADE.md build log
+│   └── test_*.py          # 130 tests (providers, models, correlation, temperature, ranking, updates, Tk)
+├── docs/                  # screenshots, HOW_THIS_WAS_MADE.md, UPDATING.md
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
+├── VERSION                # human-readable release version used by the update check
 ├── pyproject.toml
 └── .github/workflows/ci.yml
 ```

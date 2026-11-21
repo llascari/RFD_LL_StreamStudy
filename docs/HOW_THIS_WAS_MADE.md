@@ -16,7 +16,7 @@ polished marketing: the dead ends are included.
 2. **Verify every data source live** before writing UI. APIs and field names are where projects die.
 3. **Build vertical slices**: one screen + real data + tests + screenshot, then the next screen.
 4. **Keep logic pure** (models, fits, statistics) and put I/O at the edges.
-5. **Record real API responses as fixtures** so 122 tests run offline in under four seconds.
+5. **Record real API responses as fixtures** so 130 tests run offline in under four seconds.
 6. **Look at screenshots every round.** Most layout bugs are invisible in code.
 7. **Say what is experimental** and **credit the implementation**, including the model.
 
@@ -37,10 +37,11 @@ polished marketing: the dead ends are included.
 | 9 | “Before finishing the sensors work, expand getting started for all major platforms — copyable instructions for Python, Git, etc.” + “push the docs early.” | `INSTALL.md` with Windows/macOS/Linux setup, ZIP-without-Git path, verification commands, troubleshooting; platform table in the README. | `c70b01c` |
 | 10 | “Add Monitor My Watershed as an input; it has temperature and relative gage height, and can be mixed with USGS.” | ODM2 portal provider (`/browse/` site JSON + `/dataloader/ajax/`), **Sensors** tab, merging up to two stations, stuck-sensor flag. | `8423b03` |
 | 11 | “The map should be navigable (scroll/drag), auto-resize.” + “Search by name too.” | Pan/zoom, debounced resize reload, live name filter, USGS OGC name search; labelled site picker. | `e365795`, `a805eca` |
-| 12 | “A whole Temperature tab (water, air, sunshine correlation); duration above a settable temperature for 1 d/1 w/1 m/1 y; store more metrics; find a high-value nearby gage; reset settings.” | **Temperature** tab, `temperature_stats.py`, prediction percentages (% of baseflow / peak / storm flow), `ranking.py` hub suggestion, **Settings → Reset**. | `af146b3` |
+| 12 | “A whole Temperature tab (water, air, sunshine correlation); duration above a settable temperature for 1 d/1 w/1 m/1 y; store more metrics; find a high-value nearby gage; reset settings.” | **Temperature** tab, `temperature_stats.py`, prediction percentages (% of baseflow / peak, 24 h decay % of storm flow) **stored per site in `settings.flow_metrics`** when **Remember** is ticked, `ranking.py` hub suggestion, **Settings → Reset**. | `af146b3` |
 | 13 | “Update the screenshots/docs; they look stale.” | Regenerated every image from the running app, fixed the view list and quick start, moved the Site finder status to its own row. | `23826b6` |
 | 14 | “Map scrolling/dragging and auto-recentering seem tied to the radius pulldown.” | Removed the radius presets: free zoom level, `−/+`, **Fit gages**, and Recenter that keeps your zoom; persists `map_zoom`. | `3f6d2f8` |
 | 15 | “Map navigation seems broken — it snaps back. Is that load lag? Maybe keep a larger map available for panning.” | Panning moves the view immediately (optimistic), tiles are cached by zoom and prefetched 35 % beyond the viewport, and a failed/slow refresh no longer yanks the map back. Wheel zoom applies when the new tiles arrive instead of reverting. | `4f2ca9f` |
+| 16 | “Have the app check the repo for updates and tell the user; show how to update — and also how to revert or create their own variation.” | `updates.py` compares the git commit (or `VERSION` for ZIP copies) with GitHub; a footer banner and **Help → Check for updates…** dialog show copyable commands; `docs/UPDATING.md` covers update, revert and fork workflows. | `pending` |
 
 The first two commits are a different app. That is fine: the prompt changed the domain, and the
 right move was to pivot rather than bolt features onto the wrong program.
@@ -98,9 +99,9 @@ If you want to try this:
   Map & Correlation, Forecast, Site finder
 - **5 data networks + 1 tile service**: USGS NWIS (IV/DV/site/OGC), NWS `api.weather.gov`,
   Open-Meteo forecast/archive, CoCoRaHS CSV export, Monitor My Watershed ODM2, OpenStreetMap
-- **122 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
+- **130 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
 - **Zero third-party runtime dependencies** — Tk charts, `urllib`, `tk.PhotoImage` for map tiles
-- **~9,500 lines** of Python including tests, **14 commits** at the time of writing
+- **~9,800 lines** of Python including tests, **16 commits** at the time of writing
 
 ## Credit
 

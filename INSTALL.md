@@ -195,12 +195,24 @@ Override with `--settings PATH` or the `STREAMSTUDY_SETTINGS` environment variab
 
 ---
 
-## 6. Updating and uninstalling
+## 6. Updating, reverting and uninstalling
+
+**Checking:** the app checks GitHub after launch. When a newer version exists, a blue
+**“Update available”** label appears in the footer; click it or use **Help → Check for updates…**
+to see copyable instructions.
 
 **Updating**
 
-- ZIP install: download a new ZIP, extract it, and replace the old folder. Your settings are kept.
 - Git install: open the project folder and run `git pull`, then start the app again.
+- ZIP install: download a new ZIP, extract it, and replace the old folder. Your settings are kept.
+
+**Reverting:** `git log --oneline` then `git checkout <commit>`, or download
+`…/archive/<commit>.zip` and run that folder.
+
+**Your own variation:** fork the repo, change the name/branding and `REPO` in
+`streamstudy/updates.py`.
+
+All of this, with commands and troubleshooting, is in **[docs/UPDATING.md](docs/UPDATING.md)**.
 
 **Uninstalling**
 

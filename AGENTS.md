@@ -44,6 +44,7 @@ streamstudy/
   correlation.py    lagged log-flow Pearson, flow↔flow and flow↔rain
   temperature_stats.py  hours above a threshold, clear days
   ranking.py        nearby-gage scoring and hub suggestion
+  updates.py        GitHub commit / VERSION update check
   analysis.py       daily aggregation, unit conversion, stats, nice axis steps, pearson
   http.py           cached urllib client (text/bytes/json), retries on 5xx only
   settings.py       JSON settings: recent sites, windows, map radius
@@ -93,6 +94,10 @@ make test / make gui-test / make run       # same, if you like make
   centroid of the top three. `loader.rank_sites` fetches the history; the Site finder shows it.
 - **Settings reset** — `app.reset_settings()` (menu **Settings → Reset settings to defaults…**)
   restores `settings.DEFAULTS`, keeps only the current site/name, saves, and reloads.
+- **Updates / versioning** — `updates.py` compares a git checkout's `HEAD` with GitHub `main`,
+  or the local `VERSION` file for ZIP copies. Keep `VERSION`, `streamstudy.__version__` and
+  `pyproject.toml` in sync when releasing. Forks must change `REPO` in `updates.py`. Construction
+  takes `auto_update_check=False` so tests never hit GitHub.
 - **Sensors** — `providers/monitormywatershed.py` parses the JSON block on `/browse/` and POSTs
   ODM2 requests to `/dataloader/ajax/` (`get_sampling_feature_metadata`,
   `get_result_timeseries`). Times are epoch milliseconds; `-9999` is missing; depth is relative.
@@ -126,6 +131,8 @@ make test / make gui-test / make run       # same, if you like make
 - **Open-Meteo weather** — `sunshine_duration` is seconds (divide by 3600); daily stamps are local
   midnight with `utc_offset_seconds`. USGS daily water temperature is `00010`/`statCd=00003`;
   confidence/units differ from IV, so keep the two resolutions separate in stats.
+- **GitHub update check** — unauthenticated API is 60 requests/hour; failures are silent for the
+  automatic check and shown on manual checks. Never let an update check block the UI or tests.
 
 ## Testing conventions
 

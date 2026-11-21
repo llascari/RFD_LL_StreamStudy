@@ -7,6 +7,7 @@ import queue
 import re
 import threading
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox, ttk
 
 from .credits import ABOUT_TEXT
@@ -14,6 +15,12 @@ from .http import HttpClient
 from .loader import BundleLoader, LoadOptions
 from .models import DataBundle
 from .providers import build_providers
+from .updates import (
+    UpdateStatus,
+    check_for_update,
+    project_root,
+    update_instructions,
+)
 from .settings import (
     ALLOWED_DAYS,
     DEFAULTS,
@@ -83,6 +90,7 @@ class StreamStudyApp:
         providers: dict | None = None,
         settings_path: str | None = None,
         auto_load: bool = True,
+        auto_update_check: bool = True,
     ) -> None:
         self.root = root
         self.client = HttpClient(USER_AGENT)
@@ -103,6 +111,8 @@ class StreamStudyApp:
             for site, values in (self.settings.get("flow_metrics") or {}).items()
             if isinstance(values, dict)
         }
+        self.update_status: UpdateStatus | None = None
+        self._update_checking = False
         self.days = int(self.settings.get("days", 14))
         self.bundle: DataBundle | None = None
         self.history_years = int(self.settings.get("history_years", 3))
@@ -129,6 +139,8 @@ class StreamStudyApp:
         self._drain_id = self.root.after(60, self._drain_results)
         if auto_load:
             self.root.after(120, lambda: self.load_site(str(self.settings.get("last_site", DEFAULT_SITE))))
+        if auto_update_check:
+            self.root.after(2500, lambda: self.check_for_updates(manual=False))
 
     # -- window --------------------------------------------------------
     def _build_window(self) -> None:
@@ -145,6 +157,10 @@ class StreamStudyApp:
         )
         menubar.add_cascade(label="Settings", menu=settings_menu)
         help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(
+            label="Check for updates\u2026", command=lambda: self.check_for_updates(manual=True)
+        )
+        help_menu.add_separator()
         help_menu.add_command(label="About StreamStudy", command=self.show_about)
         menubar.add_cascade(label="Help", menu=help_menu)
         self.root.configure(menu=menubar)
@@ -263,11 +279,22 @@ class StreamStudyApp:
         )
         self.progress.grid(row=0, column=1, padx=(0, 14))
         self.progress.grid_remove()
+        self.update_label = tk.Label(
+            footer,
+            text="",
+            bg=BG,
+            fg=ACCENT,
+            font=(family, 9, "underline"),
+            cursor="hand2",
+        )
+        self.update_label.grid(row=0, column=2, padx=(0, 12))
+        self.update_label.grid_remove()
+        self.update_label.bind("<Button-1>", lambda _event: self.show_update_dialog())
         ttk.Button(footer, text="About", command=self.show_about).grid(
-            row=0, column=2, padx=(0, 12)
+            row=0, column=3, padx=(0, 12)
         )
         dots = ttk.Frame(footer)
-        dots.grid(row=0, column=3, sticky="e")
+        dots.grid(row=0, column=4, sticky="e")
         self.source_dots: dict[str, tk.Label] = {}
         for key, label in SOURCE_LABELS:
             widget = tk.Label(
@@ -773,6 +800,113 @@ class StreamStudyApp:
             self.set_status(
                 f"Suggested hub: {hub.site.number} \u2014 {hub.reasons}", tone="good"
             )
+
+    # -- updates -------------------------------------------------------
+    def check_for_updates(self, manual: bool = False) -> None:
+        if self._update_checking:
+            return
+        self._update_checking = True
+        if manual:
+            self.set_status("Checking for updates\u2026", tone="accent")
+        root = project_root()
+        self.run_async(
+            lambda: check_for_update(root, self.client),
+            lambda status, error: self._finish_update_check(status, error, manual),
+        )
+
+    def _finish_update_check(self, status, error, manual: bool) -> None:
+        self._update_checking = False
+        if error is not None:
+            if manual:
+                messagebox.showwarning(
+                    "Check for updates",
+                    f"Could not check for updates.\n\n{error}",
+                    parent=self.root,
+                )
+            return
+        if status is None or status.available is None:
+            if manual:
+                detail = status.error if status is not None else "no response"
+                messagebox.showwarning(
+                    "Check for updates",
+                    f"Could not check for updates.\n\n{detail}",
+                    parent=self.root,
+                )
+            return
+        self.update_status = status
+        if status.available:
+            self.update_label.configure(text=f"Update available ({status.remote_label})")
+            self.update_label.grid()
+            self.set_status(
+                "Update available \u2014 Help \u2192 Check for updates", tone="warn"
+            )
+            if manual:
+                self.show_update_dialog()
+        else:
+            self.update_label.grid_remove()
+            self.update_label.configure(text="")
+            if manual:
+                self.set_status("StreamStudy is up to date.", tone="muted")
+                messagebox.showinfo(
+                    "Check for updates",
+                    f"StreamStudy is up to date ({status.local_label}).",
+                    parent=self.root,
+                )
+
+    def show_update_dialog(self) -> None:
+        status = self.update_status
+        if status is None or status.available is None:
+            self.check_for_updates(manual=True)
+            return
+        if not status.available:
+            messagebox.showinfo(
+                "Check for updates",
+                f"StreamStudy is up to date ({status.local_label}).",
+                parent=self.root,
+            )
+            return
+
+        instructions = update_instructions(status, project_root())
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Update available")
+        dialog.configure(bg=BG)
+        dialog.transient(self.root)
+        dialog.geometry("640x380")
+
+        ttk.Label(
+            dialog, text=f"Update available ({status.remote_label})", style="Heading.TLabel"
+        ).pack(anchor="w", padx=16, pady=(14, 6))
+        body = tk.Text(
+            dialog,
+            wrap="word",
+            bg=SURFACE,
+            fg=TEXT,
+            relief="flat",
+            padx=12,
+            pady=10,
+            height=12,
+            font=(font_family(self.root), 10),
+        )
+        body.insert("1.0", instructions)
+        body.configure(state="disabled")
+        body.pack(fill="both", expand=True, padx=16)
+
+        actions = ttk.Frame(dialog)
+        actions.pack(fill="x", padx=16, pady=12)
+        ttk.Button(
+            actions, text="Copy instructions", command=lambda: self._copy_text(instructions)
+        ).pack(side="left")
+        ttk.Button(
+            actions,
+            text="Open repository" if status.method == "git" else "Open download page",
+            command=lambda: webbrowser.open(status.url),
+        ).pack(side="left", padx=8)
+        ttk.Button(actions, text="Close", command=dialog.destroy).pack(side="right")
+
+    def _copy_text(self, text: str) -> None:
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.set_status("Update instructions copied to the clipboard.", tone="good")
 
     def show_about(self) -> None:
         messagebox.showinfo(f"About {APP_NAME}", ABOUT_TEXT, parent=self.root)
