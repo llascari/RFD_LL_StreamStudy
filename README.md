@@ -1,7 +1,15 @@
 # StreamStudy
 
-A desktop explorer for **USGS stream gages, National Weather Service forecasts, and precipitation
-data** — built with Python and Tkinter, with no third-party dependencies.
+> [!WARNING]
+> **Experimental — made for playing around, not for decisions.**
+> StreamStudy is a hobby project for exploring public USGS, NWS, Open-Meteo and CoCoRaHS APIs.
+> The rainfall→flow estimate and the cross-correlations are first-order heuristics, not hydrologic
+> forecasts. Do not use this app for flood safety, emergency planning, engineering, insurance, or
+> any decision where being wrong matters. All data remain provisional and the source agencies
+> remain authoritative. Expect rough edges and breaking API changes.
+
+An experimental desktop explorer for **USGS stream gages, National Weather Service forecasts, and
+precipitation data** — built with Python and Tkinter, with no third-party dependencies.
 
 Enter any USGS site number (the default is [0423205010, Irondequoit Creek above Blossom Rd near
 Rochester, NY](https://waterdata.usgs.gov/monitoring-location/USGS-0423205010/)) to see the
@@ -223,6 +231,13 @@ the [National Weather Service](https://www.weather.gov/documentation/services-we
 [Open-Meteo](https://open-meteo.com/) (CC BY 4.0), and
 [CoCoRaHS](https://www.cocorahs.org/) (CC BY 4.0). Map tiles by
 [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL).
+
+## Project status
+
+**Experimental.** This exists to make public hydrology and weather data fun to poke at — clicking
+around streams, seeing how storms move them, and comparing gauges with models. It is not
+maintained as a product, has no support guarantees, and the models are deliberately simple.
+Issues and pull requests are welcome, but treat everything here as a sandbox.
 
 ## License
 

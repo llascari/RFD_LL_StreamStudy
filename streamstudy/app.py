@@ -119,7 +119,7 @@ class StreamStudyApp:
         ).pack(anchor="w")
         tk.Label(
             brand,
-            text="USGS stream gages  \u00b7  NWS weather  \u00b7  rainfall",
+            text="experimental  \u00b7  USGS stream gages  \u00b7  NWS weather  \u00b7  rainfall",
             bg=SURFACE,
             fg=MUTED,
             font=(family, 9),
