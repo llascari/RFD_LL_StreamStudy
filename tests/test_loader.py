@@ -3,11 +3,12 @@ import unittest
 from streamstudy.loader import BundleLoader, LoadOptions
 from streamstudy.providers import (
     CoCoRaHSProvider,
+    MonitorMyWatershedProvider,
     NwsProvider,
     OpenMeteoProvider,
     UsgsProvider,
 )
-from tests.support import StaticClient, default_mapping
+from tests.support import FakeMmwClient, StaticClient, default_mapping
 
 
 def build_loader(client: StaticClient) -> BundleLoader:
@@ -63,6 +64,21 @@ class LoaderTest(unittest.TestCase):
         self.assertIn("0423205010", analysis.flow)
         self.assertEqual(analysis.errors, [])
         self.assertGreaterEqual(len(analysis.precip_labels), 1)
+
+    def test_monitor_my_watershed_attachment(self):
+        client = StaticClient()
+        loader = BundleLoader(
+            UsgsProvider(client),
+            NwsProvider(client),
+            OpenMeteoProvider(client),
+            CoCoRaHSProvider(client),
+            MonitorMyWatershedProvider(FakeMmwClient()),
+        )
+        bundle = loader.load("0423205010", LoadOptions(days=7))
+        self.assertIsNotNone(bundle.mmw_site)
+        self.assertEqual(bundle.mmw_site.identifier, "LL_SGTU_TEST2")
+        self.assertIn("depth", bundle.mmw_series)
+        self.assertIn("temperature", bundle.mmw_series)
 
     def test_history_carries_precip_series(self):
         site = self.loader.load("0423205010", LoadOptions(days=7)).site

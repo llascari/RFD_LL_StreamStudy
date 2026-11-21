@@ -10,6 +10,7 @@ from .correlation import RegionalAnalysis, build_regional
 from .models import DataBundle, GaugeStation, HistoryBundle, Site, utc_now
 from .response import analyse_history
 from .providers.cocorahs import CoCoRaHSProvider
+from .providers.monitormywatershed import MonitorMyWatershedProvider
 from .providers.nws import NwsProvider
 from .providers.openmeteo import OpenMeteoProvider
 from .providers.usgs import UsgsProvider
@@ -33,11 +34,13 @@ class BundleLoader:
         nws: NwsProvider,
         openmeteo: OpenMeteoProvider,
         cocorahs: CoCoRaHSProvider,
+        mmw: MonitorMyWatershedProvider | None = None,
     ) -> None:
         self.usgs = usgs
         self.nws = nws
         self.openmeteo = openmeteo
         self.cocorahs = cocorahs
+        self.mmw = mmw
 
     @classmethod
     def from_dict(cls, providers: dict) -> "BundleLoader":
@@ -46,6 +49,7 @@ class BundleLoader:
             nws=providers["nws"],
             openmeteo=providers["openmeteo"],
             cocorahs=providers["cocorahs"],
+            mmw=providers.get("mmw"),
         )
 
     def load(self, site_number: str, options: LoadOptions | None = None) -> DataBundle:
@@ -131,6 +135,34 @@ class BundleLoader:
                 errors.append("CoCoRaHS: site state unknown, nearest gauge not searched")
         except Exception as exc:
             errors.append(f"CoCoRaHS: {exc}")
+
+        # -- Monitor My Watershed / EnviroDIY sensors (relative depth, temperature)
+        if self.mmw is not None:
+            try:
+                candidates = self.mmw.nearest_sites(
+                    site.latitude, site.longitude, limit=4, max_km=60.0
+                )
+                contributing = []
+                merged: dict[str, Series] = {}
+                for candidate in candidates:
+                    if len(contributing) >= 2:
+                        break
+                    found = self.mmw.sensors_for_site(
+                        candidate.identifier, days=min(days, 30)
+                    )
+                    if not found:
+                        continue
+                    contributing.append(candidate)
+                    for key, value in found.items():
+                        merged.setdefault(key, value)
+                    if {"depth", "temperature"} <= set(merged):
+                        break
+                if merged:
+                    bundle.mmw_site = contributing[0]
+                    bundle.mmw_sites = tuple(contributing)
+                    bundle.mmw_series = merged
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"Monitor My Watershed: {exc}")
 
         bundle.fetched_at = utc_now()
         return bundle

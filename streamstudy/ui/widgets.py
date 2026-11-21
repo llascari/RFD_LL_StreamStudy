@@ -60,7 +60,7 @@ class SourceRow(ttk.Frame):
         super().__init__(master, style="Card.TFrame")
         self.dot = tk.Label(self, text="\u25cf", bg=SURFACE, fg=MUTED, font=("TkDefaultFont", 8))
         self.dot.pack(side="left", padx=(0, 8))
-        ttk.Label(self, text=network, style="Card.TLabel", width=12).pack(side="left")
+        ttk.Label(self, text=network, style="Card.TLabel", width=21).pack(side="left")
         self.detail_var = tk.StringVar(value="")
         ttk.Label(
             self, textvariable=self.detail_var, style="MutedCard.TLabel", anchor="w"

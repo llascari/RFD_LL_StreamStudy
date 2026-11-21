@@ -38,7 +38,8 @@ streamstudy/
   app.py            window, header/footer, background orchestration, settings save
   loader.py         BundleLoader: current conditions + multi-year history + regional analysis
   models.py         Site, Series, Sample, FlowEvent, ResponseFit, DataBundle, HistoryBundle
-  providers/        usgs.py · nws.py · openmeteo.py · cocorahs.py  (pure parse_* + thin fetch)
+  providers/        usgs.py · nws.py · openmeteo.py · cocorahs.py · monitormywatershed.py
+                    (pure parse_* functions + thin fetch)
   response.py       baseflow, storm events, response fit, scenario → predicted hydrograph
   correlation.py    lagged log-flow Pearson, flow↔flow and flow↔rain
   analysis.py       daily aggregation, unit conversion, stats, nice axis steps, pearson
@@ -78,6 +79,10 @@ make test / make gui-test / make run       # same, if you like make
   reloads tiles and gages for the new bbox; the Filter box is client-side. Tiles are fetched in
   the worker (`fetch_tiles`) and decoded on the main thread. Markers are hit-tested by pixel
   distance; clicking calls `app.load_site`.
+- **Sensors** — `providers/monitormywatershed.py` parses the JSON block on `/browse/` and POSTs
+  ODM2 requests to `/dataloader/ajax/` (`get_sampling_feature_metadata`,
+  `get_result_timeseries`). Times are epoch milliseconds; `-9999` is missing; depth is relative.
+  Up to two nearby stations are merged (nearest wins per variable).
 - **Name search** — `UsgsProvider.search_by_name` uses the OGC `monitoring-locations` collection
   with a CQL2 text filter. Station names are upper-case and `LIKE` is case-sensitive, so the term
   is normalised; the state filter needs the numeric FIPS code, and `site_type` defaults to `Stream`.
@@ -100,6 +105,10 @@ make test / make gui-test / make run       # same, if you like make
   “© OpenStreetMap contributors”. Degrade to the schematic grid if tiles fail.
 - **OGC name search** — CQL2 `LIKE` is case-sensitive against upper-case station names; use
   `state_code` (FIPS string), not the postal code. Empty/blank terms must short-circuit.
+- **Monitor My Watershed** — the site list is a JSON block in the `/browse/` HTML (parse with
+  `strict=False`); observations need a POST of `request_data` JSON; values use `-9999` for
+  missing. Depth is relative to the sensor, not a datum; flag constant series as suspicious.
+  The portal exposes two temperature results (degF and degC) — prefer degC.
 
 ## Testing conventions
 

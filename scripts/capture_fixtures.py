@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
@@ -36,6 +37,20 @@ def fetch(url: str) -> str:
 
 def fetch_json(url: str) -> dict:
     return json.loads(fetch(url))
+
+
+def fetch_post(url: str, data: dict) -> str:
+    body = urllib.parse.urlencode(data).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "User-Agent": UA,
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=45) as response:
+        return response.read().decode("utf-8", "replace")
 
 
 def save(name: str, text: str) -> None:
@@ -166,6 +181,71 @@ def nws() -> None:
     save_json("nws_observations.json", observations)
 
 
+def monitor_my_watershed() -> None:
+    browse = fetch("https://monitormywatershed.org/browse/")
+    match = re.search(r'<script id="sites-data"[^>]*>(.*?)</script>', browse, re.S)
+    if match:
+        sites = json.loads(match.group(1), strict=False)
+        keep = [
+            site
+            for site in sites
+            if site.get("code") in ("LL_SGTU_TEST2", "IRDQ Creek", "Oatka Creek 1")
+        ]
+        save(
+            "mmw_sites.html",
+            "<html><body>\n<script id=\"sites-data\" type=\"application/json\">\n"
+            + json.dumps(keep, indent=1)
+            + "\n</script>\n</body></html>\n",
+        )
+
+    ajax = "https://monitormywatershed.org/dataloader/ajax/"
+    save(
+        "mmw_metadata.json",
+        fetch_post(
+            ajax,
+            {
+                "request_data": json.dumps(
+                    {
+                        "method": "get_sampling_feature_metadata",
+                        "sampling_feature_code": "LL_SGTU_TEST2",
+                    }
+                )
+            },
+        ),
+    )
+
+    def trim_series(result_id: int, name: str, want: int = 24) -> None:
+        text = fetch_post(
+            ajax,
+            {
+                "request_data": json.dumps(
+                    {
+                        "method": "get_result_timeseries",
+                        "resultid": result_id,
+                        "start_date": "2026-10-01",
+                        "end_date": date.today().isoformat(),
+                    }
+                )
+            },
+        )
+        raw = json.loads(text)
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        keys = [
+            key
+            for key in sorted(raw["valuedatetime"], key=lambda k: int(k))
+            if float(raw["datavalue"][key]) > -9998
+        ][:want]
+        payload = {
+            field: {key: raw[field][key] for key in keys}
+            for field in ("valueid", "datavalue", "valuedatetime", "valuedatetimeutcoffset")
+        }
+        save(name, json.dumps(payload))
+
+    trim_series(8061, "mmw_depth.json")
+    trim_series(4887, "mmw_temp.json")
+
+
 def openmeteo() -> None:
     forecast = fetch_json(
         "https://api.open-meteo.com/v1/forecast"
@@ -209,6 +289,7 @@ def main() -> int:
         ("NWS points/stations/forecasts/QPF", nws),
         ("Open-Meteo forecast + ERA5 archive", openmeteo),
         ("CoCoRaHS gauge history", cocorahs),
+        ("Monitor My Watershed sensors", monitor_my_watershed),
     )
     failures = 0
     for label, step in steps:

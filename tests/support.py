@@ -12,6 +12,24 @@ def fixture(name: str) -> str:
     return (FIXTURES / name).read_text()
 
 
+class FakeMmwClient:
+    """Serves Monitor My Watershed fixtures for the ODM2 AJAX endpoint."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def get_text(self, url: str, params: dict | None = None) -> str:
+        return fixture("mmw_sites.html")
+
+    def post_form(self, url: str, data: dict) -> str:
+        request = json.loads(data["request_data"])
+        self.calls.append(request)
+        if request.get("method") == "get_sampling_feature_metadata":
+            return fixture("mmw_metadata.json")
+        result_id = int(request.get("resultid", 0))
+        return fixture("mmw_depth.json" if result_id == 8061 else "mmw_temp.json")
+
+
 class StaticClient:
     """Returns fixture text based on a substring of the requested URL."""
 

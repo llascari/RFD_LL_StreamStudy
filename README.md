@@ -25,20 +25,25 @@ feeds them**.
 | --- | --- |
 | ![Overview tab](docs/overview.png) | ![Hydrograph tab](docs/hydrograph.png) |
 
-| Precipitation | Rainfall → Flow |
+| Sensors | Precipitation |
 | --- | --- |
-| ![Precipitation tab](docs/precipitation.png) | ![Rainfall to flow tab](docs/response.png) |
+| ![Sensors tab](docs/sensors.png) | ![Precipitation tab](docs/precipitation.png) |
 
-| Forecast | Site finder |
+| Rainfall → Flow | Forecast |
 | --- | --- |
-| ![Forecast tab](docs/forecast.png) | ![Site finder](docs/sites.png) |
+| ![Rainfall to flow tab](docs/response.png) | ![Forecast tab](docs/forecast.png) |
 
-![Map and correlation tab](docs/map.png)
+| Map & Correlation | Site finder |
+| --- | --- |
+| ![Map and correlation tab](docs/map.png) | ![Site finder](docs/sites.png) |
 
 ## Features
 
 - **Hydrograph** — discharge and gage height from USGS instantaneous values, with a log-scale
   option, peak/median statistics and a hover readout on every chart
+- **Sensors** — nearby **Monitor My Watershed / EnviroDIY** stations (within 60 km, merging up to
+  two stations): water temperature, **relative** water depth and conductance, with charts and
+  daily-mean correlations against the USGS gage
 - **Precipitation comparison** — daily bars and a table comparing up to four sources:
   on-site USGS precipitation (parameter `00045` where available), the nearest CoCoRaHS volunteer
   gauge, Open-Meteo's gridded model, and NWS ASOS observations
@@ -115,6 +120,7 @@ Everything comes from documented, structured APIs — no HTML scraping:
 | **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse; regional rain series) | none |
 | **OpenStreetMap** | `tile.openstreetmap.org/{z}/{x}/{y}.png` | Basemap tiles for the map tab (6–24 tiles per view, cached in memory) | none; attribution required |
 | **CoCoRaHS** | `data.cocorahs.org/cocorahs/export/exportreports.aspx` | Volunteer 24-hour gauge reports: recent comparison, nearest-gauge search, and multi-year history | none |
+| **Monitor My Watershed** | `monitormywatershed.org/browse/` (site JSON) + `/dataloader/ajax/` (ODM2 result series) | Nearby EnviroDIY sensors: water temperature, **relative** water depth, conductance | none |
 
 Notes:
 
@@ -124,6 +130,9 @@ Notes:
 - CoCoRaHS also publishes a JSON API at `api2.cocorahs.org`; it resolved IPv6-only and timed out
   from our test network, so the app uses the official bulk CSV export endpoint instead. Both are
   documented public interfaces, not screen-scraping.
+- Monitor My Watershed sensors report at their own intervals; depth is **relative to the sensor**
+  (no surveyed datum) and there is no flow, so the Sensors tab compares shapes/timing with the
+  USGS gage rather than absolute levels. A flat series is flagged as a possibly stuck sensor.
 - Map tiles are fetched only for the visible view and cached for five minutes. If the tile server
   is unreachable, the map falls back to a schematic grid with the same clickable gage positions.
 - USGS values are **provisional** and may be revised. CoCoRaHS gauges report 24-hour totals at the
@@ -254,11 +263,11 @@ RFD_LL_StreamStudy/
 │   ├── analysis.py        # aggregation and formatting helpers
 │   ├── http.py            # cached, retrying urllib client
 │   ├── settings.py        # JSON settings (recent sites, window, history years)
-│   ├── providers/         # usgs.py · nws.py · openmeteo.py · cocorahs.py
-│   └── ui/                # theme, charts, widgets and the seven views (incl. map_view)
+│   ├── providers/         # usgs · nws · openmeteo · cocorahs · monitormywatershed
+│   └── ui/                # theme, charts, widgets and eight tab views (incl. map_view)
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 95 tests (providers, models, correlation, map, name search, Tk smoke)
+│   └── test_*.py          # 106 tests (providers, models, correlation, map, sensors, Tk smoke)
 ├── docs/                  # screenshots
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── pyproject.toml
@@ -294,8 +303,9 @@ the agentic coding harness of the [LM Studio](https://lmstudio.ai/) desktop app.
 
 Data courtesy of the [USGS National Water Information System](https://waterservices.usgs.gov/),
 the [National Weather Service](https://www.weather.gov/documentation/services-web-api),
-[Open-Meteo](https://open-meteo.com/) (CC BY 4.0), and
-[CoCoRaHS](https://www.cocorahs.org/) (CC BY 4.0). Map tiles by
+[Open-Meteo](https://open-meteo.com/) (CC BY 4.0),
+[CoCoRaHS](https://www.cocorahs.org/) (CC BY 4.0), and
+[Monitor My Watershed](https://monitormywatershed.org/) / WikiWatershed / EnviroDIY. Map tiles by
 [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL).
 
 ## Project status

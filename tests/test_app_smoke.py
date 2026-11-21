@@ -70,6 +70,7 @@ class AppSmokeTest(unittest.TestCase):
             [
                 "Overview",
                 "Hydrograph",
+                "Sensors",
                 "Precipitation",
                 "Rainfall \u2192 Flow",
                 "Map & Correlation",
@@ -176,6 +177,40 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(len(self.app.response_view.table.get_children()), 5)
         self.assertGreaterEqual(len(self.app.response_view.prediction_chart._all_series), 4)
         self.assertIn("peak", self.app.response_view.outlook.cget("text"))
+
+    def test_sensors_view_renders(self):
+        from datetime import timedelta
+
+        from streamstudy.models import MmwSite, Sample, Series, utc_now
+
+        now = utc_now()
+        samples = tuple(
+            Sample(now - timedelta(hours=index), 2.0 + index * 0.01)
+            for index in range(48)
+        )
+        self.app.bundle.mmw_site = MmwSite(
+            identifier="LL_SGTU_TEST2",
+            name="Seth Green TU Test #2",
+            latitude=43.13232,
+            longitude=-77.55477,
+            organization="Trout Unlimited",
+            distance_km=3.4,
+            url="https://monitormywatershed.org/sites/LL_SGTU_TEST2/",
+        )
+        self.app.bundle.mmw_series = {
+            "depth": Series("depth", "Relative water depth", "in", samples, "Monitor My Watershed"),
+            "temperature": Series(
+                "temperature", "Water temperature", "\u00b0C",
+                tuple(Sample(s.time, 8.0 + s.value * 0.1) for s in samples),
+                "Monitor My Watershed",
+            ),
+        }
+        self.app.sensors_view.render(self.app.bundle)
+        view = self.app.sensors_view
+        self.assertIn("Seth Green", view.caption.cget("text"))
+        self.assertNotEqual(view.depth_card.value_var.get(), "\u2014")
+        self.assertGreaterEqual(len(view.depth_chart._all_series), 1)
+        self.assertTrue(view.comparison_var.get())
 
     def test_site_finder_name_search(self):
         view = self.app.sites_view

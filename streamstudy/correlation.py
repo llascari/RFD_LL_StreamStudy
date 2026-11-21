@@ -64,8 +64,14 @@ def lagged_correlation(
     *,
     max_lag: int = 5,
     min_pairs: int = MIN_PAIRS,
+    logarithmic: bool = True,
 ) -> LagCorrelation | None:
-    """Best |r| over lags in ``[-max_lag, max_lag]`` days."""
+    """Best |r| over lags in ``[-max_lag, max_lag]`` days.
+
+    ``logarithmic`` suits flow/stage; disable it for temperatures, which can
+    be negative.
+    """
+    transform = _log if logarithmic else (lambda values: list(values))
     best: LagCorrelation | None = None
     for lag in sorted(range(-max_lag, max_lag + 1), key=abs):
         xs: list[float] = []
@@ -78,7 +84,7 @@ def lagged_correlation(
             ys.append(other)
         if len(xs) < min_pairs:
             continue
-        r = pearson(_log(xs), _log(ys))
+        r = pearson(transform(xs), transform(ys))
         if not math.isfinite(r):
             continue
         if best is None or abs(r) > abs(best.r) + 1e-12:

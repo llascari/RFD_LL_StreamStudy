@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from ..http import HttpClient
 from .cocorahs import CoCoRaHSProvider
+from .monitormywatershed import MonitorMyWatershedProvider
 from .nws import NwsProvider
 from .openmeteo import OpenMeteoProvider
 from .usgs import UsgsProvider
 
 __all__ = [
     "CoCoRaHSProvider",
+    "MonitorMyWatershedProvider",
     "NwsProvider",
     "OpenMeteoProvider",
     "UsgsProvider",
@@ -26,4 +28,5 @@ def build_providers(client: HttpClient | None = None) -> dict[str, object]:
         "nws": NwsProvider(client),
         "openmeteo": OpenMeteoProvider(client),
         "cocorahs": CoCoRaHSProvider(client),
+        "mmw": MonitorMyWatershedProvider(client),
     }

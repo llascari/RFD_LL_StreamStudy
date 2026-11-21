@@ -32,6 +32,7 @@ from .ui.map_view import (
 )
 from .ui.precip_view import PrecipView
 from .ui.response_view import ResponseView
+from .ui.sensors_view import SensorsView
 from .ui.sites_view import SitesView
 from .ui.theme import (
     ACCENT,
@@ -53,6 +54,7 @@ SOURCE_LABELS = (
     ("nws", "NWS"),
     ("openmeteo", "Open-Meteo"),
     ("cocorahs", "CoCoRaHS"),
+    ("mmw", "MMW"),
 )
 STATUS_COLORS = {"muted": MUTED, "good": GOOD, "warn": WARN, "bad": BAD, "accent": ACCENT}
 
@@ -189,6 +191,7 @@ class StreamStudyApp:
         self.notebook.grid(row=1, column=0, sticky="nsew", padx=12, pady=(10, 6))
         self.home_view = HomeView(self.notebook, self)
         self.hydro_view = HydroView(self.notebook, self)
+        self.sensors_view = SensorsView(self.notebook, self)
         self.precip_view = PrecipView(self.notebook, self)
         self.response_view = ResponseView(self.notebook, self)
         self.map_view = MapView(self.notebook, self)
@@ -197,6 +200,7 @@ class StreamStudyApp:
         for view, label in (
             (self.home_view, "Overview"),
             (self.hydro_view, "Hydrograph"),
+            (self.sensors_view, "Sensors"),
             (self.precip_view, "Precipitation"),
             (self.response_view, "Rainfall \u2192 Flow"),
             (self.map_view, "Map & Correlation"),
@@ -639,7 +643,13 @@ class StreamStudyApp:
         self.fetched_label.configure(text=f"Updated {stamp}{warning}")
 
         self.site_var.set(site.number)
-        for view in (self.home_view, self.hydro_view, self.precip_view, self.forecast_view):
+        for view in (
+            self.home_view,
+            self.hydro_view,
+            self.sensors_view,
+            self.precip_view,
+            self.forecast_view,
+        ):
             view.render(bundle)
         self._update_source_dots(bundle)
 
@@ -662,6 +672,7 @@ class StreamStudyApp:
             "nws": bool(bundle.nws_station and (bundle.nws_daily or bundle.nws_precip)),
             "openmeteo": bool(bundle.openmeteo_hourly or bundle.openmeteo_daily),
             "cocorahs": bool(bundle.coco_daily),
+            "mmw": bool(bundle.mmw_series),
         }
         for key, widget in self.source_dots.items():
             widget.configure(fg=GOOD if availability.get(key) else MUTED)

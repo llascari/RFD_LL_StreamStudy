@@ -84,6 +84,7 @@ class HomeView(ttk.Frame):
             ("nws", "NWS"),
             ("openmeteo", "Open-Meteo"),
             ("cocorahs", "CoCoRaHS"),
+            ("mmw", "Monitor My Watershed"),
         )
         for index, (key, network) in enumerate(networks, start=1):
             row = SourceRow(sources, network)
@@ -253,6 +254,19 @@ class HomeView(ttk.Frame):
             cocorahs.set(f"{bundle.coco_station.identifier} \u2014 no reports in range", "partial", "empty")
         else:
             cocorahs.set("No nearby volunteer gauge", "idle", "\u2014")
+
+        mmw = self.rows["mmw"]
+        if bundle.mmw_site and bundle.mmw_series:
+            station = bundle.mmw_site
+            detail = f"{station.name} ({station.identifier})"
+            if not math.isnan(station.distance_km):
+                detail += f"  \u00b7  {station.distance_km:.1f} km away"
+            detail += f"  \u00b7  {len(bundle.mmw_series)} sensor series"
+            mmw.set(detail, "ok", "live")
+        elif bundle.mmw_site:
+            mmw.set(f"{bundle.mmw_site.name} \u2014 no sensor series", "partial", "empty")
+        else:
+            mmw.set("No nearby EnviroDIY station", "idle", "\u2014")
 
     def _open_site(self, _event: tk.Event) -> None:
         if self._site_url:

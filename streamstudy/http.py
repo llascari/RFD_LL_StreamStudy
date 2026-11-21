@@ -93,6 +93,41 @@ class HttpClient:
     def get_bytes(self, url: str, params: dict | None = None) -> bytes:
         return self._request(self.build_url(url, params))
 
+    def post_form(self, url: str, data: dict) -> str:
+        """POST an application/x-www-form-urlencoded body (no caching)."""
+        body = urllib.parse.urlencode(data).encode("utf-8")
+        last: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            request = urllib.request.Request(
+                url,
+                data=body,
+                headers={
+                    "User-Agent": self.user_agent,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json, text/plain, */*",
+                },
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return response.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as exc:
+                last = exc
+                if exc.code in (408, 429, 500, 502, 503, 504) and attempt < self.max_retries:
+                    time.sleep(1.0 + attempt)
+                    continue
+                raise HttpError(
+                    f"HTTP {exc.code} from {urllib.parse.urlsplit(url).netloc}",
+                    url=url,
+                    status=exc.code,
+                ) from exc
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                last = exc
+                raise HttpError(
+                    f"Network error talking to {urllib.parse.urlsplit(url).netloc}: {exc}",
+                    url=url,
+                ) from exc
+        raise HttpError(f"Request failed: {last}", url=url)  # pragma: no cover
+
     def get_json(self, url: str, params: dict | None = None) -> dict:
         text = self.get_text(url, params)
         try:

@@ -173,6 +173,22 @@ class HistoryBundle:
     errors: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class MmwSite:
+    """A Monitor My Watershed / EnviroDIY station."""
+
+    identifier: str
+    name: str
+    latitude: float
+    longitude: float
+    site_id: str = ""
+    organization: str = ""
+    site_type: str = ""
+    stream_name: str = ""
+    distance_km: float = float("nan")
+    url: str = ""
+
+
 @dataclass
 class DataBundle:
     """Everything fetched for one site, ready for the views to render."""
@@ -190,6 +206,9 @@ class DataBundle:
     openmeteo_zone: str = ""
     coco_station: GaugeStation | None = None
     coco_daily: tuple[tuple[date, float], ...] = ()
+    mmw_site: MmwSite | None = None
+    mmw_sites: tuple[MmwSite, ...] = ()
+    mmw_series: dict[str, Series] = field(default_factory=dict)
     history: HistoryBundle | None = None
     errors: list[str] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=utc_now)
@@ -211,3 +230,7 @@ class DataBundle:
             bool(self.coco_daily),
         )
         return sum(1 for check in checks if check)
+
+    @property
+    def has_mmw(self) -> bool:
+        return bool(self.mmw_site and self.mmw_series)

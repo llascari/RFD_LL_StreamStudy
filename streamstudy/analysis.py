@@ -118,6 +118,16 @@ def precip_table(
     return rows
 
 
+def daily_means(samples, tz: tzinfo | None = None) -> dict[date, float]:
+    """Average high-frequency samples into local-day means."""
+    buckets: dict[date, list[float]] = {}
+    for sample in samples:
+        if sample.value is None:
+            continue
+        buckets.setdefault(local_day(sample.time, tz), []).append(sample.value)
+    return {day: sum(values) / len(values) for day, values in buckets.items()}
+
+
 def nice_step(span: float, target: int = 5) -> float:
     """A round tick step covering ``span`` in roughly ``target`` steps."""
     if span <= 0:
