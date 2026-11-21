@@ -269,7 +269,7 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         values = self.app.sites_view.tree.item(rows[0], "values")
         self.assertEqual(values[-1], "6.4")
-        self.assertIn("Suggested hub", self.app.sites_view.status_var.get())
+        self.assertIn("Suggested:", self.app.sites_view.status_var.get())
 
     def test_temperature_threshold_persists(self):
         self.app.set_temperature_threshold(18.5)

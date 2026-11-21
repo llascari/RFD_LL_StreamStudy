@@ -68,9 +68,9 @@ class SitesView(ttk.Frame):
             side="left", padx=(6, 0)
         )
         self.status_var = tk.StringVar(value="Pick a state, or search near the loaded site.")
-        ttk.Label(
-            controls, textvariable=self.status_var, style="Muted.TLabel"
-        ).pack(side="left", padx=12)
+        ttk.Label(self, textvariable=self.status_var, style="Muted.TLabel").grid(
+            row=2, column=0, sticky="w", pady=(0, 4)
+        )
 
         tree_frame, self.tree = treeview(
             self,
@@ -201,7 +201,7 @@ class SitesView(ttk.Frame):
         if ranking.hub is not None:
             self.tree.selection_set(ranking.hub.site.number)
             self.status_var.set(
-                f"Suggested hub: {ranking.hub.site.number} \u2014 {ranking.hub.reasons}"
+                f"Suggested: {ranking.hub.site.number} \u00b7 {ranking.hub.score:.1f}"
             )
         else:
             self.status_var.set(f"{len(self._sites)} gages ranked")

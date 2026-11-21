@@ -200,8 +200,8 @@ cd ~/Documents/RFD_LL_StreamStudy-main
 python3 -m streamstudy
 ```
 
-The app opens on USGS `0423205010` (Irondequoit Creek, Rochester NY) and loads data in the
-background. Try another gage with `--site`:
+The app opens on USGS `0423205010` (Irondequoit Creek, Rochester NY) and loads conditions,
+history, weather, sensors, temperature, map and forecast in the background. Try another gage with `--site`:
 
 ```bash
 python3 -m streamstudy --site 0423205010 --days 30
@@ -249,12 +249,13 @@ Override the file location with `--settings PATH` or `$STREAMSTUDY_SETTINGS`.
 provider API ──► parse_*() ──► models (Site, Series, FlowEvent, ResponseFit…)
                                    │
                         BundleLoader
-             .load()        — current conditions, all four sources
+             .load()        — current conditions, weather, sensors, all sources
              .load_history()— multi-year daily flow + rain, then response fit
                                    │
                 StreamStudyApp (worker thread → queue → Tk main thread)
                                    │
-  HomeView · HydroView · PrecipView · ResponseView · ForecastView · SitesView
+  HomeView · HydroView · SensorsView · TemperatureView · PrecipView ·
+  ResponseView · MapView · ForecastView · SitesView
 ```
 
 - **`providers/`** — one module per network. Parsing functions are pure and unit tested against

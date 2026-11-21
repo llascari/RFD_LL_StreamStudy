@@ -239,7 +239,8 @@ Still stuck? Open an issue at
 - **Rainfall → Flow** — historical storms vs flow response, plus a forecast scenario
 - **Map & Correlation** — clickable gages, drag to pan, scroll to zoom, cross-correlations
 - **Forecast** — NWS forecast text, QPF bars and precipitation probability
-- **Site finder** — find gages by state, distance or station name
+- **Site finder** — find gages by state, distance or station name, and **Rank by data value**
+  to suggest the best nearby hub
 
 Use **Settings → Reset settings to defaults…** in the menu bar to restore every preference
 (threshold, remembered metrics, recent sites) while keeping the current gage loaded.
