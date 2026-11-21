@@ -125,6 +125,10 @@ class PredictionTest(unittest.TestCase):
         self.assertAlmostEqual(prediction.curve[0][1], 50.0, delta=0.5)
         self.assertAlmostEqual(prediction.curve[-1][1], 50.0, delta=3.0)
         self.assertGreater(len(prediction.curve), 10)
+        self.assertGreater(prediction.rise_pct_base, 0)
+        self.assertGreater(prediction.rise_pct_peak, 0)
+        self.assertGreaterEqual(prediction.decay_24h_pct, 0)
+        self.assertLessEqual(prediction.decay_24h_pct, 100)
 
     def test_no_rain_means_no_prediction(self):
         flow, precip = synthetic_history()

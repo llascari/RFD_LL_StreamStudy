@@ -234,10 +234,14 @@ Still stuck? Open an issue at
 - **Overview** — current gage height / discharge, today’s rain, source status
 - **Hydrograph** — discharge and gage height charts
 - **Sensors** — nearby Monitor My Watershed / EnviroDIY temperature and relative depth sensors
+- **Temperature** — water vs air temperature, sunshine, and hours above a settable threshold
 - **Precipitation** — gauges vs models day by day
 - **Rainfall → Flow** — historical storms vs flow response, plus a forecast scenario
 - **Map & Correlation** — clickable gages, drag to pan, scroll to zoom, cross-correlations
 - **Forecast** — NWS forecast text, QPF bars and precipitation probability
 - **Site finder** — find gages by state, distance or station name
+
+Use **Settings → Reset settings to defaults…** in the menu bar to restore every preference
+(threshold, remembered metrics, recent sites) while keeping the current gage loaded.
 
 This is an experimental tool for exploring data, **not** a flood-warning or engineering system.

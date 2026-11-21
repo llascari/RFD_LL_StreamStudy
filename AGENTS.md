@@ -42,11 +42,13 @@ streamstudy/
                     (pure parse_* functions + thin fetch)
   response.py       baseflow, storm events, response fit, scenario → predicted hydrograph
   correlation.py    lagged log-flow Pearson, flow↔flow and flow↔rain
+  temperature_stats.py  hours above a threshold, clear days
+  ranking.py        nearby-gage scoring and hub suggestion
   analysis.py       daily aggregation, unit conversion, stats, nice axis steps, pearson
   http.py           cached urllib client (text/bytes/json), retries on 5xx only
   settings.py       JSON settings: recent sites, windows, map radius
   credits.py        attribution text shown in About
-  ui/               theme, charts (line/bar/scatter), map_view, six tab views, widgets
+  ui/               theme, charts, map_view, nine tab views, widgets
 tests/              fixtures + unit/smoke tests (unittest, no pytest required)
 scripts/            capture_fixtures.py (refresh fixtures from live APIs)
 ```
@@ -76,9 +78,17 @@ make test / make gui-test / make run       # same, if you like make
   `fit_response` and `predict` pure. Extend `tests/test_response.py` with a synthetic basin whose
   true response is known, and keep the 10–90 band honest.
 - **Map** — `ui/map_view.py`: drag/wheel emit `on_view_change` → `app.request_map_view`, which
-  reloads tiles and gages for the new bbox; the Filter box is client-side. Tiles are fetched in
-  the worker (`fetch_tiles`) and decoded on the main thread. Markers are hit-tested by pixel
-  distance; clicking calls `app.load_site`.
+  reloads tiles and gages for the new bbox; a debounced `<Configure>` resize emits `on_resize`
+  with `force=True`; the Filter box is client-side. Tiles are fetched in the worker
+  (`fetch_tiles`) and decoded on the main thread. Clicking calls `app.load_site`.
+- **Temperature** — `temperature_stats.py` integrates hours above a threshold from IV samples
+  (gap capped at 2 h) and uses daily means for 30 d/1 y; `ui/temperature_view.py` also correlates
+  daily water temperature with Open-Meteo air temperature and sunshine (linear, ±2 d).
+- **Nearby hub ranking** — `ranking.py` scores candidates on fit r²/storm count, mean peer
+  correlation, water-temperature availability and distance; the hub is the best site nearest the
+  centroid of the top three. `loader.rank_sites` fetches the history; the Site finder shows it.
+- **Settings reset** — `app.reset_settings()` (menu **Settings → Reset settings to defaults…**)
+  restores `settings.DEFAULTS`, keeps only the current site/name, saves, and reloads.
 - **Sensors** — `providers/monitormywatershed.py` parses the JSON block on `/browse/` and POSTs
   ODM2 requests to `/dataloader/ajax/` (`get_sampling_feature_metadata`,
   `get_result_timeseries`). Times are epoch milliseconds; `-9999` is missing; depth is relative.
@@ -109,6 +119,9 @@ make test / make gui-test / make run       # same, if you like make
   `strict=False`); observations need a POST of `request_data` JSON; values use `-9999` for
   missing. Depth is relative to the sensor, not a datum; flag constant series as suspicious.
   The portal exposes two temperature results (degF and degC) — prefer degC.
+- **Open-Meteo weather** — `sunshine_duration` is seconds (divide by 3600); daily stamps are local
+  midnight with `utc_offset_seconds`. USGS daily water temperature is `00010`/`statCd=00003`;
+  confidence/units differ from IV, so keep the two resolutions separate in stats.
 
 ## Testing conventions
 

@@ -91,6 +91,7 @@ class AppSmokeTest(unittest.TestCase):
                 "Overview",
                 "Hydrograph",
                 "Sensors",
+                "Temperature",
                 "Precipitation",
                 "Rainfall \u2192 Flow",
                 "Map & Correlation",
@@ -197,6 +198,86 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(len(self.app.response_view.table.get_children()), 5)
         self.assertGreaterEqual(len(self.app.response_view.prediction_chart._all_series), 4)
         self.assertIn("peak", self.app.response_view.outlook.cget("text"))
+
+    def test_temperature_view_renders(self):
+        from datetime import date, timedelta
+
+        from streamstudy.models import Sample, Series, WeatherDay, utc_now
+
+        now = utc_now()
+        self.app.bundle.weather_days = tuple(
+            WeatherDay(
+                day=date.today() - timedelta(days=index),
+                mean_c=10.0 + index,
+                sunshine_hours=5.0 + index * 0.2,
+                cloud_pct=15.0 if index < 3 else 60.0,
+            )
+            for index in range(10)
+        )
+        self.app.bundle.weather_zone = "America/New_York"
+        self.app.bundle.water_temp_daily = {
+            date.today() - timedelta(days=index): 18.0 + index * 0.5
+            for index in range(10)
+        }
+        self.app.bundle.usgs["00010"] = Series(
+            "00010",
+            "Water temperature",
+            "\u00b0C",
+            tuple(
+                Sample(now - timedelta(hours=index), 21.0) for index in range(48)
+            ),
+            "USGS NWIS",
+        )
+        self.app.temperature_view.render(self.app.bundle)
+        view = self.app.temperature_view
+        self.assertNotEqual(view.water_card.value_var.get(), "\u2014")
+        self.assertNotEqual(view.air_card.value_var.get(), "\u2014")
+        self.assertGreaterEqual(len(view.temp_chart._all_series), 2)
+        self.assertIn("%", view.window_vars["24 h"].get())
+        self.assertIn("r ", view.compare_var.get())
+
+    def test_reset_settings(self):
+        from unittest.mock import patch
+
+        self.app.set_temperature_threshold(25.0)
+        self.app.set_days(30)
+        self.app.flow_metrics["x"] = {"rise_pct_base": 1.0}
+        with patch("streamstudy.app.messagebox.askyesno", return_value=True):
+            self.app.reset_settings()
+        self.assertEqual(self.app.temperature_threshold, 20.0)
+        self.assertEqual(self.app.days, 14)
+        self.assertEqual(self.app.flow_metrics, {})
+        self.assertEqual(self.app.settings["temperature_threshold_c"], 20.0)
+        self.assertEqual(self.app.settings["days"], 14)
+
+    def test_ranking_view(self):
+        from streamstudy.ranking import Ranking, SiteScore
+
+        site = self.app.bundle.site
+        score = SiteScore(
+            site=site,
+            score=6.4,
+            r_squared=0.4,
+            events=90,
+            mean_peer_r=0.8,
+            has_temperature=True,
+            distance_km=0.0,
+            reasons="90 storms \u00b7 r\u00b2 0.40",
+        )
+        self.app.sites_view.show_ranking(Ranking(scores=(score,), hub=score))
+        rows = self.app.sites_view.tree.get_children()
+        self.assertEqual(len(rows), 1)
+        values = self.app.sites_view.tree.item(rows[0], "values")
+        self.assertEqual(values[-1], "6.4")
+        self.assertIn("Suggested hub", self.app.sites_view.status_var.get())
+
+    def test_temperature_threshold_persists(self):
+        self.app.set_temperature_threshold(18.5)
+        self.assertEqual(self.app.settings["temperature_threshold_c"], 18.5)
+        from streamstudy.settings import load_settings
+
+        reloaded = load_settings(str(self.app.settings_path))
+        self.assertEqual(reloaded["temperature_threshold_c"], 18.5)
 
     def test_sensors_view_renders(self):
         from datetime import timedelta

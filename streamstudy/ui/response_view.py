@@ -118,6 +118,13 @@ class ResponseView(ttk.Frame):
         ttk.Button(
             scenario_row, text="Use forecast", command=self._use_forecast
         ).pack(side="left", padx=(8, 0))
+        self.metrics_var = tk.BooleanVar(value=self.app.store_flow_metrics)
+        ttk.Checkbutton(
+            scenario_row,
+            text="Remember",
+            variable=self.metrics_var,
+            command=lambda: self.app.set_store_flow_metrics(self.metrics_var.get()),
+        ).pack(side="left", padx=(10, 0))
         self.scenario_source = ttk.Label(scenario_row, text="", style="Muted.TLabel")
         self.scenario_source.pack(side="right")
 
@@ -244,7 +251,7 @@ class ResponseView(ttk.Frame):
             scenario = scale_scenario(forecast, self._override)
             self.scenario_var.set(f"{self._override:.2f}")
         self.scenario_source.configure(
-            text=f"forecast: {source} {forecast.total_in:.2f} in / 48 h"
+            text=f"{source} {forecast.total_in:.2f} in"
         )
 
         flow = bundle.usgs.get("00060")
@@ -320,8 +327,26 @@ class ResponseView(ttk.Frame):
                     f"{prediction.rain_in:.2f} in \u2192 peak {prediction.peak_cfs:,.0f} cfs "
                     f"(rise +{prediction.rise_cfs:,.0f}; range +{low_rise:,.0f} to +{high_rise:,.0f}) "
                     f"in about {(prediction.peak_time - utc_now()).total_seconds() / 3600:.0f} h"
+                    f"  \u00b7  +{prediction.rise_pct_base:.0f}% of baseflow, "
+                    f"{prediction.rise_pct_peak:.0f}% of peak; 24 h decay "
+                    f"{prediction.decay_24h_pct:.0f}% of storm flow"
                     f"{similar}"
                 )
+            )
+            self.app.save_flow_metrics(
+                bundle.site.number,
+                {
+                    "rain_in": prediction.rain_in,
+                    "peak_cfs": prediction.peak_cfs,
+                    "rise_cfs": prediction.rise_cfs,
+                    "rise_pct_base": prediction.rise_pct_base,
+                    "rise_pct_peak": prediction.rise_pct_peak,
+                    "decay_24h_pct": prediction.decay_24h_pct,
+                    "peak_time": prediction.peak_time.astimezone().isoformat(
+                        timespec="minutes"
+                    ),
+                    "confidence": prediction.confidence,
+                },
             )
         else:
             title = "Response outlook"

@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 from .analysis import mm_to_inches
 from .correlation import RegionalAnalysis, build_regional
+from .ranking import Ranking, build_ranking
 from .models import DataBundle, GaugeStation, HistoryBundle, Site, utc_now
 from .response import analyse_history
 from .providers.cocorahs import CoCoRaHSProvider
@@ -136,6 +137,28 @@ class BundleLoader:
         except Exception as exc:
             errors.append(f"CoCoRaHS: {exc}")
 
+        # -- Open-Meteo daily air temperature, sunshine and cloud cover
+        try:
+            weather = self.openmeteo.fetch_weather(
+                site.latitude,
+                site.longitude,
+                past_days=min(days + 1, 30),
+                forecast_days=2,
+            )
+            bundle.weather_days = weather.daily
+            bundle.weather_zone = weather.timezone
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"Open-Meteo weather: {exc}")
+
+        # -- A year of USGS daily water temperature for duration statistics
+        try:
+            end = date.today()
+            start = end - timedelta(days=365)
+            daily = self.usgs.fetch_daily(site.number, start, end, ("00010",))
+            bundle.water_temp_daily = daily.get("00010", {})
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"USGS water temperature: {exc}")
+
         # -- Monitor My Watershed / EnviroDIY sensors (relative depth, temperature)
         if self.mmw is not None:
             try:
@@ -235,6 +258,38 @@ class BundleLoader:
             precip=tuple(sorted(precip.items())),
             errors=errors,
         )
+
+    def rank_sites(
+        self,
+        sites: list[Site],
+        *,
+        years: int = 2,
+        rain: dict[date, float] | None = None,
+        base_site: Site | None = None,
+        max_sites: int = 5,
+    ) -> Ranking:
+        """Fetch flow/temperature history and rank nearby gages as a hub."""
+        end = date.today() - timedelta(days=1)
+        try:
+            start = end.replace(year=end.year - max(1, int(years)))
+        except ValueError:
+            start = end.replace(year=end.year - max(1, int(years)), day=28)
+        chosen = tuple(sites[: max(1, int(max_sites))])
+        flows: dict[str, dict[date, float]] = {}
+        temperatures: dict[str, dict[date, float]] = {}
+        fits = {}
+        for site in chosen:
+            try:
+                daily = self.usgs.fetch_daily(
+                    site.number, start, end, ("00060", "00010")
+                )
+            except Exception:  # noqa: BLE001 - skip unusable candidates
+                continue
+            flows[site.number] = daily.get("00060", {})
+            temperatures[site.number] = daily.get("00010", {})
+            _, fit = analyse_history(flows[site.number], rain or {})
+            fits[site.number] = fit
+        return build_ranking(chosen, flows, temperatures, fits, base_site)
 
     def load_regional(
         self,

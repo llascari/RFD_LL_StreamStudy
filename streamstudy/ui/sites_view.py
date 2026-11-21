@@ -54,6 +54,9 @@ class SitesView(ttk.Frame):
         ttk.Button(
             controls, text="Near current site", command=self._search_nearby
         ).pack(side="left", padx=4)
+        ttk.Button(
+            controls, text="Rank by data value", command=self._rank_nearby
+        ).pack(side="left", padx=(4, 0))
         ttk.Label(controls, text="Name", style="Muted.TLabel").pack(
             side="left", padx=(16, 6)
         )
@@ -77,12 +80,14 @@ class SitesView(ttk.Frame):
                 "state": ("State", 55, "center"),
                 "huc": ("HUC", 130, "w"),
                 "elevation": ("Elevation (ft)", 110, "e"),
+                "value": ("Value", 60, "e"),
             },
             height=16,
         )
         tree_frame.grid(row=3, column=0, sticky="nsew")
         self.tree.column("name", stretch=True)
         self.tree.column("elevation", stretch=False)
+        self.tree.column("value", stretch=False)
         self.tree.bind("<Double-1>", lambda _event: self._load_selected())
 
         footer = ttk.Frame(self)
@@ -162,10 +167,44 @@ class SitesView(ttk.Frame):
                     site.state or "\u2014",
                     site.huc or "\u2014",
                     elevation,
+                    "",
                 ),
             )
         count = len(self._sites)
         self.status_var.set(f"{count} {label}" if count else f"No {label} found")
+
+    def _rank_nearby(self) -> None:
+        self.app.rank_nearby()
+
+    def show_ranking(self, ranking) -> None:
+        clear_tree(self.tree)
+        self._sites.clear()
+        for score in ranking.scores:
+            site = score.site
+            self._sites[site.number] = site
+            elevation = (
+                f"{site.altitude_ft:,.0f}" if site.altitude_ft is not None else "\u2014"
+            )
+            self.tree.insert(
+                "",
+                "end",
+                iid=site.number,
+                values=(
+                    site.number,
+                    site.name,
+                    site.state or "\u2014",
+                    site.huc or "\u2014",
+                    elevation,
+                    f"{score.score:.1f}",
+                ),
+            )
+        if ranking.hub is not None:
+            self.tree.selection_set(ranking.hub.site.number)
+            self.status_var.set(
+                f"Suggested hub: {ranking.hub.site.number} \u2014 {ranking.hub.reasons}"
+            )
+        else:
+            self.status_var.set(f"{len(self._sites)} gages ranked")
 
     # -- loading ---------------------------------------------------------
     def _load_selected(self) -> None:

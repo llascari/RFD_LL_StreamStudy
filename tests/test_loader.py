@@ -91,8 +91,11 @@ class LoaderTest(unittest.TestCase):
             "0423205010", LoadOptions(days=7, coco_station="NY-MR-90")
         )
         self.assertEqual(bundle.coco_station.identifier, "NY-MR-90")
-        _url, params = self.client.calls[-1]
-        self.assertEqual(params["Station"], "NY-MR-90")
+        coco_calls = [
+            call for call in self.client.calls if "exportreports.aspx" in call[0]
+        ]
+        self.assertTrue(coco_calls)
+        self.assertEqual(coco_calls[-1][1]["Station"], "NY-MR-90")
 
 
 if __name__ == "__main__":

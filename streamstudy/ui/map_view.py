@@ -112,10 +112,15 @@ def heat_colour(value: float) -> str:
 # map canvas
 # --------------------------------------------------------------------------- #
 class MapCanvas(tk.Canvas):
-    def __init__(self, master: tk.Misc, on_select, on_view_change=None) -> None:
+    def __init__(
+        self, master: tk.Misc, on_select, on_view_change=None, on_resize=None
+    ) -> None:
         super().__init__(master, bg=BG, highlightthickness=0, bd=0)
         self._on_select = on_select
         self._on_view_change = on_view_change
+        self._on_resize = on_resize
+        self._last_size = (0, 0)
+        self._resize_job: str | None = None
         self._sites: list[Site] = []
         self._photos: dict[tuple[int, int, int], tk.PhotoImage] = {}
         self._center = (43.0, -77.0)
@@ -128,7 +133,7 @@ class MapCanvas(tk.Canvas):
         self._drag_origin: tuple[int, int] | None = None
         self._dragged = False
 
-        self.bind("<Configure>", lambda _event: self.redraw())
+        self.bind("<Configure>", self._on_configure)
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda _event: self._set_hover(None))
         self.bind("<ButtonPress-1>", self._on_press)
@@ -204,6 +209,27 @@ class MapCanvas(tk.Canvas):
         return best
 
     # -- events --------------------------------------------------------
+    def _on_configure(self, event: tk.Event) -> None:
+        size = (event.width, event.height)
+        resized = self._last_size != (0, 0) and (
+            abs(size[0] - self._last_size[0]) > 16
+            or abs(size[1] - self._last_size[1]) > 16
+        )
+        self._last_size = size
+        self.redraw()
+        if resized and self._on_resize is not None and not self._dragged:
+            if self._resize_job is not None:
+                try:
+                    self.after_cancel(self._resize_job)
+                except tk.TclError:
+                    pass
+            self._resize_job = self.after(350, self._notify_resize)
+
+    def _notify_resize(self) -> None:
+        self._resize_job = None
+        if self._on_resize is not None:
+            self._on_resize(self._center[0], self._center[1], self._zoom)
+
     def _on_motion(self, event: tk.Event) -> None:
         self._set_hover(self._nearest(event.x, event.y))
 
@@ -580,6 +606,7 @@ class MapView(ttk.Frame):
             map_frame,
             on_select=self._on_site_clicked,
             on_view_change=self._on_view_change,
+            on_resize=self._on_resize,
         )
         self.map.grid(row=0, column=0, sticky="nsew")
 
@@ -677,6 +704,10 @@ class MapView(ttk.Frame):
 
     def _on_view_change(self, latitude: float, longitude: float, zoom: int) -> None:
         self.app.request_map_view(latitude, longitude, zoom)
+
+    def _on_resize(self, latitude: float, longitude: float, zoom: int) -> None:
+        """Window resized: fetch tiles/gages for the newly exposed area."""
+        self.app.request_map_view(latitude, longitude, zoom, force=True)
 
     def map_size(self) -> tuple[int, int]:
         """Canvas size, with a sane fallback while the tab is still hidden."""

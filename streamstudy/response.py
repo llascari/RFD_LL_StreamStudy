@@ -264,6 +264,9 @@ class Prediction:
     low_peak_cfs: float
     high_peak_cfs: float
     rise_cfs: float
+    rise_pct_base: float
+    rise_pct_peak: float
+    decay_24h_pct: float
     peak_time: datetime
     half_life_days: float
     curve: tuple[tuple[datetime, float], ...]
@@ -389,6 +392,16 @@ def predict(
     low_peak, low_curve = build(fit.ratio_p10)
     high_peak, high_curve = build(fit.ratio_p90)
 
+    rise = max(0.0, peak - current)
+    rise_pct_base = 100.0 * rise / base if base > 0 else 0.0
+    rise_pct_peak = 100.0 * rise / peak if peak > 0 else 0.0
+    after_peak = [
+        value for moment, value in curve if moment >= peak_time + timedelta(hours=24)
+    ]
+    flow_24h = after_peak[0] if after_peak else curve[-1][1]
+    storm_flow = max(1e-9, peak - base)
+    decay_24h_pct = 100.0 * max(0.0, peak - flow_24h) / storm_flow
+
     similar = tuple(
         sorted(
             (
@@ -410,7 +423,10 @@ def predict(
         peak_cfs=peak,
         low_peak_cfs=low_peak,
         high_peak_cfs=high_peak,
-        rise_cfs=max(0.0, peak - current),
+        rise_cfs=rise,
+        rise_pct_base=rise_pct_base,
+        rise_pct_peak=rise_pct_peak,
+        decay_24h_pct=decay_24h_pct,
         peak_time=peak_time,
         half_life_days=fit.half_life_days,
         curve=curve,

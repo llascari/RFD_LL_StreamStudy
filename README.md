@@ -25,17 +25,19 @@ feeds them**.
 | --- | --- |
 | ![Overview tab](docs/overview.png) | ![Hydrograph tab](docs/hydrograph.png) |
 
-| Sensors | Precipitation |
+| Sensors | Temperature |
 | --- | --- |
-| ![Sensors tab](docs/sensors.png) | ![Precipitation tab](docs/precipitation.png) |
+| ![Sensors tab](docs/sensors.png) | ![Temperature tab](docs/temperature.png) |
 
-| Rainfall → Flow | Forecast |
+| Precipitation | Rainfall → Flow |
 | --- | --- |
-| ![Rainfall to flow tab](docs/response.png) | ![Forecast tab](docs/forecast.png) |
+| ![Precipitation tab](docs/precipitation.png) | ![Rainfall to flow tab](docs/response.png) |
 
-| Map & Correlation | Site finder |
+| Forecast | Map & Correlation |
 | --- | --- |
-| ![Map and correlation tab](docs/map.png) | ![Site finder](docs/sites.png) |
+| ![Forecast tab](docs/forecast.png) | ![Map and correlation tab](docs/map.png) |
+
+![Site finder](docs/sites.png)
 
 ## Features
 
@@ -44,6 +46,8 @@ feeds them**.
 - **Sensors** — nearby **Monitor My Watershed / EnviroDIY** stations (within 60 km, merging up to
   two stations): water temperature, **relative** water depth and conductance, with charts and
   daily-mean correlations against the USGS gage
+- **Temperature** — water vs air temperature, daily sunshine and clear-day counts, water↔air and
+  water↔sunshine correlations, and **time above a settable threshold** (24 h / 7 d / 30 d / 1 y)
 - **Precipitation comparison** — daily bars and a table comparing up to four sources:
   on-site USGS precipitation (parameter `00045` where available), the nearest CoCoRaHS volunteer
   gauge, Open-Meteo's gridded model, and NWS ASOS observations
@@ -51,14 +55,16 @@ feeds them**.
   response: storms detected, response rate (cfs per inch), time to peak, recession half-life,
   a rainfall-vs-rise scatter with the storm examples behind the fit, and a forecast-driven
   predicted hydrograph with a 10–90 % band and the most similar past storms
-- **Map & Correlation** — a navigable OpenStreetMap view: **drag to pan, scroll to zoom**, filter
-  gages by name, and click any dot to load it (gages and tiles reload for the selected area).
+- **Map & Correlation** — a navigable OpenStreetMap view: **drag to pan, scroll to zoom**, and
+  **automatic reload on window resize**; filter gages by name, and click any dot to load it
+  (gages and tiles reload for the selected area).
   It pairs up to six regional streams by lagged log-flow correlation (±5 days) and correlates each
   stream with ERA5, the CoCoRaHS gauge and any on-site USGS rain gauge
 - **Forecast** — NWS daily periods with full discussion text, plus the NWS gridpoint
   **quantitative precipitation forecast** (6-hourly bars) and peak precipitation probability
 - **Site finder** — search active USGS surface-water gages by state, within ~50 km of the
-  loaded site, or by **station name** (USGS OGC API), then double-click to load one
+  loaded site, or by **station name** (USGS OGC API); **Rank by data value** scores nearby gages
+  (model fit, peer correlation, water temperature, proximity) and suggests a central hub
 - **Resilient by design** — every provider is independent: if one API is down the others still
   render, and the failure is shown as a warning instead of a broken window
 - **Fast and polite** — background threads (results marshalled through a queue, never touching Tk
@@ -89,9 +95,10 @@ see how this particular stream has behaved, not as a flood forecast.
 ## Regional map and cross-correlation
 
 The **Map & Correlation** tab puts the nearby gages on an OpenStreetMap basemap. It is a real
-map view: **drag to pan and scroll to zoom**, and the gage list plus tiles reload for whatever
-area you select; **Recenter** returns to the loaded site and the **Filter** box matches station
-names or numbers. Click any dot to load that stream. For the current view it then:
+map view: **drag to pan and scroll to zoom**, the gage list plus tiles reload for whatever area
+you select, and **resizing the window** fetches tiles/gages for the newly exposed area;
+**Recenter** returns to the loaded site and the **Filter** box matches station names or numbers.
+Click any dot to load that stream. For the current view it then:
 
 - fetches 1–3 years of **daily mean flow** for the six gages nearest the loaded site;
 - computes pairwise **log-flow Pearson r at the best lag within ±5 days** — a positive lag means
@@ -112,11 +119,11 @@ Everything comes from documented, structured APIs — no HTML scraping:
 | Network | Endpoint | Used for | Auth |
 | --- | --- | --- | --- |
 | **USGS NWIS** | `waterservices.usgs.gov/nwis/iv/` (JSON) | Recent discharge, gage height, water temperature, on-site precipitation (≤120 days) | none |
-| **USGS NWIS** | `waterservices.usgs.gov/nwis/dv/` (JSON) | **Daily mean flow for the multi-year response fit** | none |
+| **USGS NWIS** | `waterservices.usgs.gov/nwis/dv/` (JSON) | **Daily mean flow** for the response fit and **1 year of daily water temperature** for duration stats | none |
 | **USGS NWIS** | `waterservices.usgs.gov/nwis/site/` (RDB) | Site metadata and gage search (`siteType=ST`, `parameterCd=00060`) | none |
 | **USGS Water Data** | `api.waterdata.usgs.gov/ogcapi/v0/…` | Station **name search** (`monitoring-locations` with a CQL2 `LIKE` filter), plus the newer API generally | none |
 | **NWS** | `api.weather.gov/points/…`, `/gridpoints/…`, `/stations/…/observations` | Nearest ASOS observations, daily/hourly forecast, gridpoint QPF | none (User-Agent required) |
-| **Open-Meteo** | `api.open-meteo.com/v1/forecast` | Hourly precipitation + probability, daily sums (past 60 days, 2-day forecast) | none |
+| **Open-Meteo** | `api.open-meteo.com/v1/forecast` | Hourly precipitation + probability; **daily air temperature, sunshine duration, cloud cover and radiation** | none |
 | **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse; regional rain series) | none |
 | **OpenStreetMap** | `tile.openstreetmap.org/{z}/{x}/{y}.png` | Basemap tiles for the map tab (6–24 tiles per view, cached in memory) | none; attribution required |
 | **CoCoRaHS** | `data.cocorahs.org/cocorahs/export/exportreports.aspx` | Volunteer 24-hour gauge reports: recent comparison, nearest-gauge search, and multi-year history | none |
@@ -222,7 +229,19 @@ Settings (recent sites, last site, window, history length) live in a small JSON 
 | macOS | `~/Library/Application Support/streamstudy/settings.json` |
 | Windows | `%APPDATA%\streamstudy\settings.json` |
 
-Override with `--settings PATH` or `$STREAMSTUDY_SETTINGS`.
+Additional settings (editable through the UI, stored in the same file):
+
+| Key | Meaning | Default |
+| --- | --- | --- |
+| `temperature_threshold_c` | duration-above threshold, editable on the Temperature tab | `20` |
+| `store_flow_metrics` | remember predicted flow metrics per site (`Remember` in Rainfall → Flow) | `true` |
+| `flow_metrics` | last predicted peak/rise/decay percentages per site number | `{}` |
+| `site_names` | number → station-name map used by the picker | `{}` |
+
+**Reset:** use **Settings → Reset settings to defaults…** in the menu bar. It clears recent sites,
+saved metrics and preferences, and keeps the current site loaded.
+
+Override the file location with `--settings PATH` or `$STREAMSTUDY_SETTINGS`.
 
 ## How it works
 
@@ -260,14 +279,16 @@ RFD_LL_StreamStudy/
 │   ├── models.py          # Site, Series, FlowEvent, ResponseFit, DataBundle…
 │   ├── response.py        # rainfall-runoff model: baseflow, storms, fit, prediction
 │   ├── correlation.py     # lagged cross-correlation of regional flows and rain
+│   ├── temperature_stats.py # hours above a threshold, clear-day counts
+│   ├── ranking.py         # "best nearby gage" scoring and hub suggestion
 │   ├── analysis.py        # aggregation and formatting helpers
 │   ├── http.py            # cached, retrying urllib client
 │   ├── settings.py        # JSON settings (recent sites, window, history years)
 │   ├── providers/         # usgs · nws · openmeteo · cocorahs · monitormywatershed
-│   └── ui/                # theme, charts, widgets and eight tab views (incl. map_view)
+│   └── ui/                # theme, charts, widgets and nine tab views (incl. map_view)
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 106 tests (providers, models, correlation, map, sensors, Tk smoke)
+│   └── test_*.py          # 122 tests (providers, models, correlation, temperature, ranking, Tk)
 ├── docs/                  # screenshots
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── pyproject.toml

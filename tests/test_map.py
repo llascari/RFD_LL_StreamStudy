@@ -45,7 +45,9 @@ class StubApp:
     def request_regional(self, force: bool = False) -> None:  # pragma: no cover
         return None
 
-    def request_map_view(self, latitude: float, longitude: float, zoom: int) -> None:
+    def request_map_view(
+        self, latitude: float, longitude: float, zoom: int, force: bool = False
+    ) -> None:
         self.view_changes.append((latitude, longitude, zoom))
 
     def recenter_map(self) -> None:  # pragma: no cover
@@ -161,6 +163,29 @@ class MapWidgetTest(unittest.TestCase):
         self.assertEqual(len(self.view.map.visible_sites()), 2)
         self.view.map.set_filter("nothing-matches")
         self.assertEqual(self.view.map.visible_sites(), [])
+
+    def test_resize_requests_a_fresh_view(self):
+        self.view.set_map(
+            (self.site.latitude, self.site.longitude),
+            10,
+            [self.site],
+            {},
+            self.site.number,
+        )
+        self.root.update()
+
+        class SizeEvent:
+            pass
+
+        first = SizeEvent()
+        first.width, first.height = 600, 400
+        self.view.map._on_configure(first)
+        second = SizeEvent()
+        second.width, second.height = 760, 520
+        self.view.map._on_configure(second)
+        self.view.map._notify_resize()
+        self.assertTrue(self.app.view_changes)
+        self.assertEqual(self.app.view_changes[-1][2], 10)
 
     def test_wheel_zooms(self):
         self.view.set_map(

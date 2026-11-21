@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from ..http import HttpClient
+from ..models import WeatherDay
 
 API = "https://api.open-meteo.com/v1/forecast"
 ARCHIVE_API = "https://archive-api.open-meteo.com/v1/archive"
@@ -56,6 +57,49 @@ def parse_payload(payload: dict) -> OpenMeteoData:
 
 
 @dataclass(frozen=True)
+class WeatherData:
+    daily: tuple[WeatherDay, ...]
+    timezone: str
+
+
+def parse_weather_payload(payload: dict) -> WeatherData:
+    offset = int(payload.get("utc_offset_seconds", 0) or 0)
+    section = payload.get("daily", {}) or {}
+
+    def series(name: str) -> list:
+        return section.get(name, []) or []
+
+    days = series("time")
+    means = series("temperature_2m_mean")
+    maxima = series("temperature_2m_max")
+    minima = series("temperature_2m_min")
+    sunshine = series("sunshine_duration")
+    clouds = series("cloud_cover_mean")
+    radiation = series("shortwave_radiation_sum")
+
+    def pick(values, index):
+        return float(values[index]) if index < len(values) and values[index] is not None else None
+
+    daily: list[WeatherDay] = []
+    for index, stamp in enumerate(days):
+        day = datetime.fromtimestamp(int(stamp) + offset, tz=timezone.utc).date()
+        sunshine_seconds = pick(sunshine, index)
+        daily.append(
+            WeatherDay(
+                day=day,
+                mean_c=pick(means, index),
+                max_c=pick(maxima, index),
+                min_c=pick(minima, index),
+                sunshine_hours=
+                    sunshine_seconds / 3600.0 if sunshine_seconds is not None else None,
+                cloud_pct=pick(clouds, index),
+                radiation_mj=pick(radiation, index),
+            )
+        )
+    return WeatherData(daily=tuple(daily), timezone=payload.get("timezone", "") or "")
+
+
+@dataclass(frozen=True)
 class ArchiveData:
     daily: tuple[tuple[date, float], ...]  # local day, mm
     timezone: str
@@ -102,6 +146,32 @@ class OpenMeteoProvider:
         }
         payload = self._client.get_json(API, params)
         return parse_payload(payload)
+
+    def fetch_weather(
+        self,
+        latitude: float,
+        longitude: float,
+        *,
+        past_days: int = 14,
+        forecast_days: int = 2,
+    ) -> WeatherData:
+        """Daily air temperature, sunshine, cloud cover and radiation."""
+        payload = self._client.get_json(
+            API,
+            {
+                "latitude": f"{latitude:.4f}",
+                "longitude": f"{longitude:.4f}",
+                "daily": (
+                    "temperature_2m_mean,temperature_2m_max,temperature_2m_min,"
+                    "sunshine_duration,cloud_cover_mean,shortwave_radiation_sum"
+                ),
+                "past_days": max(0, min(int(past_days), 92)),
+                "forecast_days": max(1, min(int(forecast_days), 16)),
+                "timezone": "auto",
+                "timeformat": "unixtime",
+            },
+        )
+        return parse_weather_payload(payload)
 
     def fetch_archive(
         self, latitude: float, longitude: float, start: date, end: date

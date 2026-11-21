@@ -15,6 +15,9 @@ DEFAULTS = {
     "days": 14,
     "history_years": 3,
     "site_names": {},
+    "temperature_threshold_c": 20.0,
+    "store_flow_metrics": True,
+    "flow_metrics": {},
     "map_radius": 0.5,
     "map_years": 2,
     "coco_station": "",
@@ -56,6 +59,18 @@ def load_settings(path: str | Path | None = None) -> dict:
         data["site_names"] = {}
     else:
         data["site_names"] = {str(key): str(value) for key, value in names.items()}
+    try:
+        threshold = float(data.get("temperature_threshold_c", 20.0))
+    except (TypeError, ValueError):
+        threshold = 20.0
+    data["temperature_threshold_c"] = max(0.0, min(40.0, threshold))
+    data["store_flow_metrics"] = bool(data.get("store_flow_metrics", True))
+    metrics = data.get("flow_metrics")
+    data["flow_metrics"] = (
+        {str(site): value for site, value in metrics.items() if isinstance(value, dict)}
+        if isinstance(metrics, dict)
+        else {}
+    )
     if data["history_years"] not in ALLOWED_HISTORY_YEARS:
         data["history_years"] = DEFAULTS["history_years"]
     if float(data.get("map_radius", 0.5)) not in ALLOWED_MAP_RADII:

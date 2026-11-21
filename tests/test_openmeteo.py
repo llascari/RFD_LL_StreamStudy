@@ -6,6 +6,7 @@ from streamstudy.providers.openmeteo import (
     OpenMeteoProvider,
     parse_archive_payload,
     parse_payload,
+    parse_weather_payload,
 )
 from tests.support import StaticClient, fixture
 
@@ -43,6 +44,35 @@ class OpenMeteoTest(unittest.TestCase):
         self.assertEqual(params["timezone"], "auto")
         self.assertEqual(params["timeformat"], "unixtime")
         self.assertIn("precipitation", params["hourly"])
+
+
+class WeatherTest(unittest.TestCase):
+    def test_daily_weather_payload(self):
+        payload = json.loads(fixture("openmeteo_weather.json"))
+        weather = parse_weather_payload(payload)
+        self.assertEqual(len(weather.daily), 16)
+        first = weather.daily[0]
+        self.assertIsNotNone(first.mean_c)
+        self.assertIsNotNone(first.sunshine_hours)
+        self.assertGreaterEqual(first.sunshine_hours, 0.0)
+        self.assertIsNotNone(first.cloud_pct)
+
+    def test_provider_requests_temperature_and_sunshine(self):
+        class Client:
+            def __init__(self):
+                self.params = None
+
+            def get_json(self, url, params=None):
+                self.params = params
+                return json.loads(fixture("openmeteo_weather.json"))
+
+        client = Client()
+        data = OpenMeteoProvider(client).fetch_weather(43.14, -77.51, past_days=7)
+        self.assertEqual(len(data.daily), 16)
+        self.assertIn("temperature_2m_mean", client.params["daily"])
+        self.assertIn("sunshine_duration", client.params["daily"])
+        self.assertEqual(client.params["past_days"], 7)
+        self.assertEqual(client.params["timeformat"], "unixtime")
 
 
 class ArchiveTest(unittest.TestCase):

@@ -174,6 +174,19 @@ class HistoryBundle:
 
 
 @dataclass(frozen=True)
+class WeatherDay:
+    """Daily air temperature and sunshine summary."""
+
+    day: date
+    mean_c: float | None = None
+    max_c: float | None = None
+    min_c: float | None = None
+    sunshine_hours: float | None = None
+    cloud_pct: float | None = None
+    radiation_mj: float | None = None
+
+
+@dataclass(frozen=True)
 class MmwSite:
     """A Monitor My Watershed / EnviroDIY station."""
 
@@ -209,6 +222,9 @@ class DataBundle:
     mmw_site: MmwSite | None = None
     mmw_sites: tuple[MmwSite, ...] = ()
     mmw_series: dict[str, Series] = field(default_factory=dict)
+    weather_days: tuple[WeatherDay, ...] = ()
+    weather_zone: str = ""
+    water_temp_daily: dict[date, float] = field(default_factory=dict)
     history: HistoryBundle | None = None
     errors: list[str] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=utc_now)

@@ -16,6 +16,7 @@ from .models import DataBundle
 from .providers import build_providers
 from .settings import (
     ALLOWED_DAYS,
+    DEFAULTS,
     DEFAULT_SITE,
     load_settings,
     remember_site,
@@ -35,6 +36,7 @@ from .ui.precip_view import PrecipView
 from .ui.response_view import ResponseView
 from .ui.sensors_view import SensorsView
 from .ui.sites_view import SitesView
+from .ui.temperature_view import TemperatureView
 from .ui.theme import (
     ACCENT,
     BAD,
@@ -98,6 +100,15 @@ class StreamStudyApp:
             str(number): str(name)
             for number, name in (self.settings.get("site_names") or {}).items()
         }
+        self.temperature_threshold = float(
+            self.settings.get("temperature_threshold_c", 20.0)
+        )
+        self.store_flow_metrics = bool(self.settings.get("store_flow_metrics", True))
+        self.flow_metrics = {
+            str(site): dict(values)
+            for site, values in (self.settings.get("flow_metrics") or {}).items()
+            if isinstance(values, dict)
+        }
         self.days = int(self.settings.get("days", 14))
         self.bundle: DataBundle | None = None
         self.history_years = int(self.settings.get("history_years", 3))
@@ -132,6 +143,18 @@ class StreamStudyApp:
         self.root.geometry("1180x900")
         self.root.minsize(1000, 720)
         apply_theme(self.root)
+
+        menubar = tk.Menu(self.root)
+        settings_menu = tk.Menu(menubar, tearoff=False)
+        settings_menu.add_command(
+            label="Reset settings to defaults\u2026", command=self.reset_settings
+        )
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(label="About StreamStudy", command=self.show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        self.root.configure(menu=menubar)
+
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
 
@@ -213,6 +236,7 @@ class StreamStudyApp:
         self.home_view = HomeView(self.notebook, self)
         self.hydro_view = HydroView(self.notebook, self)
         self.sensors_view = SensorsView(self.notebook, self)
+        self.temperature_view = TemperatureView(self.notebook, self)
         self.precip_view = PrecipView(self.notebook, self)
         self.response_view = ResponseView(self.notebook, self)
         self.map_view = MapView(self.notebook, self)
@@ -222,6 +246,7 @@ class StreamStudyApp:
             (self.home_view, "Overview"),
             (self.hydro_view, "Hydrograph"),
             (self.sensors_view, "Sensors"),
+            (self.temperature_view, "Temperature"),
             (self.precip_view, "Precipitation"),
             (self.response_view, "Rainfall \u2192 Flow"),
             (self.map_view, "Map & Correlation"),
@@ -274,6 +299,10 @@ class StreamStudyApp:
             except tk.TclError:  # pragma: no cover
                 pass
             self._drain_id = None
+        try:
+            self.progress.stop()
+        except tk.TclError:  # pragma: no cover
+            pass
         self.settings["days"] = self.days
         save_settings(self.settings, self.settings_path)
         self.root.destroy()
@@ -488,12 +517,15 @@ class StreamStudyApp:
             rerun_regional=True,
         )
 
-    def request_map_view(self, latitude: float, longitude: float, zoom: int) -> None:
-        """Pan/zoom callback: reload tiles and gages for the selected area."""
+    def request_map_view(
+        self, latitude: float, longitude: float, zoom: int, force: bool = False
+    ) -> None:
+        """Pan/zoom/resize callback: reload tiles and gages for the area."""
         center = (float(latitude), float(longitude))
         zoom = max(4, min(15, int(zoom)))
         if (
-            self._map_center is not None
+            not force
+            and self._map_center is not None
             and abs(center[0] - self._map_center[0]) < 1e-5
             and abs(center[1] - self._map_center[1]) < 1e-5
             and zoom == self._map_zoom
@@ -633,6 +665,31 @@ class StreamStudyApp:
         self._map_site = None
         self.request_map(force=True)
 
+    def set_temperature_threshold(self, value: float) -> None:
+        self.temperature_threshold = max(0.0, min(40.0, float(value)))
+        self.settings["temperature_threshold_c"] = self.temperature_threshold
+        save_settings(self.settings, self.settings_path)
+        if self.bundle is not None:
+            self.temperature_view.render(self.bundle)
+
+    def set_store_flow_metrics(self, enabled: bool) -> None:
+        self.store_flow_metrics = bool(enabled)
+        self.settings["store_flow_metrics"] = self.store_flow_metrics
+        save_settings(self.settings, self.settings_path)
+
+    def save_flow_metrics(self, site_number: str, metrics: dict) -> None:
+        if not self.store_flow_metrics:
+            return
+        cleaned = {
+            key: round(value, 2) if isinstance(value, float) else value
+            for key, value in metrics.items()
+        }
+        if self.flow_metrics.get(site_number) == cleaned:
+            return
+        self.flow_metrics[site_number] = cleaned
+        self.settings["flow_metrics"] = dict(self.flow_metrics)
+        save_settings(self.settings, self.settings_path)
+
     def set_map_years(self, years: int) -> None:
         self.map_years = int(years)
         self.settings["map_years"] = self.map_years
@@ -642,8 +699,93 @@ class StreamStudyApp:
     def show_map(self) -> None:
         self.notebook.select(self.map_view)
 
+    def rank_nearby(self) -> None:
+        """Find the most useful nearby gage (data quality + correlations)."""
+        if self.bundle is None:
+            return
+        site = self.bundle.site
+        radius = max(0.5, self.map_radius)
+        bbox = (
+            site.longitude - radius,
+            site.latitude - radius,
+            site.longitude + radius,
+            site.latitude + radius,
+        )
+        rain = (
+            dict(self.bundle.history.precip)
+            if self.bundle.history and self.bundle.history.precip
+            else {}
+        )
+
+        def work():
+            sites = self.providers["usgs"].search_sites(bbox=bbox, limit=80)
+            candidates = [
+                candidate for candidate in sites if candidate.number != site.number
+            ]
+            candidates.sort(key=lambda candidate: self._distance_km(site, candidate))
+            if not candidates:
+                return None
+            return self.loader.rank_sites(
+                candidates[:5], years=2, rain=rain, base_site=site, max_sites=5
+            )
+
+        self.set_status("Ranking nearby gages by data value\u2026", tone="accent")
+        self.run_async(work, self._finish_rank)
+
+    def _finish_rank(self, result, error) -> None:
+        if error is not None:
+            self.set_status(f"Ranking failed: {error}", tone="bad")
+            return
+        if result is None or not result.scores:
+            self.set_status("No nearby gages with daily flow were found.", tone="warn")
+            return
+        self.sites_view.show_ranking(result)
+        hub = result.hub
+        if hub is not None:
+            self.set_status(
+                f"Suggested hub: {hub.site.number} \u2014 {hub.reasons}", tone="good"
+            )
+
     def show_about(self) -> None:
         messagebox.showinfo(f"About {APP_NAME}", ABOUT_TEXT, parent=self.root)
+
+    def reset_settings(self) -> None:
+        if not messagebox.askyesno(
+            "Reset settings",
+            "Reset all settings to defaults?\n\nRecent sites and saved flow metrics "
+            "will be cleared; the current site stays loaded.",
+            parent=self.root,
+        ):
+            return
+        current = self.bundle.site if self.bundle else None
+        self.settings = dict(DEFAULTS)
+        if current is not None:
+            self.settings["last_site"] = current.number
+            self.settings["recent_sites"] = [current.number]
+            self.settings["site_names"] = {current.number: current.name}
+        self.site_names = dict(self.settings["site_names"])
+        self.temperature_threshold = float(DEFAULTS["temperature_threshold_c"])
+        self.store_flow_metrics = bool(DEFAULTS["store_flow_metrics"])
+        self.flow_metrics = {}
+        self.history_years = int(DEFAULTS["history_years"])
+        self.map_radius = float(DEFAULTS["map_radius"])
+        self.map_years = int(DEFAULTS["map_years"])
+        self.days = int(DEFAULTS["days"])
+        save_settings(self.settings, self.settings_path)
+
+        self.days_var.set(f"{self.days} days")
+        self.site_combo.configure(values=self._recent_labels())
+        if current is not None:
+            self.site_var.set(self._site_label(current.number))
+        self.map_view.years_var.set(f"{self.map_years} years")
+        self.map_view.radius_var.set(self.map_view._label_for(self.map_radius))
+        self.response_view.metrics_var.set(self.store_flow_metrics)
+        self.temperature_view.threshold_var.set(f"{self.temperature_threshold:g}")
+        if self.bundle is not None:
+            self.temperature_view.render(self.bundle)
+            self.load_site(current.number if current else self.bundle.site.number)
+        else:
+            self.set_status("Settings reset to defaults.", tone="good")
 
     # -- site picker ---------------------------------------------------
     def _site_label(self, number: str) -> str:
@@ -682,6 +824,7 @@ class StreamStudyApp:
             self.home_view,
             self.hydro_view,
             self.sensors_view,
+            self.temperature_view,
             self.precip_view,
             self.forecast_view,
         ):
