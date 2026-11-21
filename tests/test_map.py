@@ -150,6 +150,10 @@ class MapWidgetTest(unittest.TestCase):
         self.assertEqual(zoom, 10)
         self.assertLess(longitude, self.site.longitude)  # dragged east -> view moves west
         self.assertGreater(latitude, self.site.latitude)  # dragged down -> view moves north
+        # Optimistic move: the canvas already shows the new centre instead of
+        # snapping back while tiles/gages load.
+        self.assertAlmostEqual(self.view.map._center[0], latitude)
+        self.assertAlmostEqual(self.view.map._center[1], longitude)
 
     def test_name_filter(self):
         self.view.set_map(

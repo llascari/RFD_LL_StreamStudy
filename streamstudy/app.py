@@ -546,7 +546,11 @@ class StreamStudyApp:
             self.settings["map_zoom"] = zoom
             save_settings(self.settings, self.settings_path)
         width, height = self.map_view.map_size()
-        west, south, east, north = view_bbox(center, zoom, width, height)
+        # Prefetch a margin beyond the viewport so small pans are instant and
+        # only the newly exposed edge needs a network request.
+        west, south, east, north = view_bbox(
+            center, zoom, int(width * 1.35), int(height * 1.35)
+        )
 
         def work():
             sites = self.providers["usgs"].search_sites(

@@ -79,10 +79,12 @@ make test / make gui-test / make run       # same, if you like make
   true response is known, and keep the 10–90 band honest.
 - **Map** — `ui/map_view.py`: drag/wheel emit `on_view_change` → `app.request_map_view`, which
   reloads tiles and gages for the new bbox; a debounced `<Configure>` resize emits `on_resize`
-  with `force=True`; the Filter box is client-side. Zoom is a free level (`settings.map_zoom`),
-  not a radius preset: `app.zoom_map(±1)` steps it, `fit_map_to_sites` frames the visible gages,
-  and `recenter_map` keeps the current zoom. Tiles are fetched in the worker (`fetch_tiles`) and
-  decoded on the main thread. Clicking calls `app.load_site`.
+  with `force=True`; the Filter box is client-side. Panning sets `MapCanvas._center` immediately
+  (never wait for the network before moving), same-zoom tiles are merged rather than replaced,
+  and the requested bbox is 1.35× the viewport to prefetch a panning margin. Zoom is a free level
+  (`settings.map_zoom`), not a radius preset: `app.zoom_map(±1)` steps it, `fit_map_to_sites`
+  frames the visible gages, and `recenter_map` keeps the current zoom. Tiles are fetched in the
+  worker (`fetch_tiles`) and decoded on the main thread. Clicking calls `app.load_site`.
 - **Temperature** — `temperature_stats.py` integrates hours above a threshold from IV samples
   (gap capped at 2 h) and uses daily means for 30 d/1 y; `ui/temperature_view.py` also correlates
   daily water temperature with Open-Meteo air temperature and sunshine (linear, ±2 d).

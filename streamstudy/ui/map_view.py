@@ -145,13 +145,16 @@ class MapCanvas(tk.Canvas):
         tile_bytes: dict[tuple[int, int, int], bytes],
         current_id: str | None,
     ) -> None:
+        zoom = max(4, min(15, int(zoom)))
+        if zoom != self._zoom:
+            # Tiles from another zoom level are not reusable.
+            self._photos = {}
         self._center = center
         self._sites = list(sites)
         self._current = current_id
-        self._zoom = max(4, min(15, int(zoom)))
+        self._zoom = zoom
         self._dx = 0.0
         self._dy = 0.0
-        self._photos = {}
         for key, payload in tile_bytes.items():
             try:
                 self._photos[key] = tk.PhotoImage(
@@ -260,9 +263,13 @@ class MapCanvas(tk.Canvas):
             self._dx = self._dy = 0.0
             self._dragged = False
             self._drag_origin = None
+            # Move the view immediately; the tile/gage refresh happens in the
+            # background. This is what stops the map snapping back while data
+            # loads (the old behaviour waited for the network).
+            self._center = (latitude, longitude)
+            self.redraw()
             if self._on_view_change is not None:
                 self._on_view_change(latitude, longitude, self._zoom)
-            self.redraw()
             return
         self._drag_origin = None
         site = self._nearest(event.x, event.y)
@@ -738,7 +745,7 @@ class MapView(ttk.Frame):
         self.map.set_filter(self.filter_var.get())
         self.zoom_var.set(f"z{zoom}")
         self.caption.configure(
-            text=f"USGS {current_id}  \u00b7  {len(sites)} gages in view  \u00b7  zoom {zoom}"
+            text=f"USGS {current_id}  \u00b7  {len(sites)} gages loaded  \u00b7  zoom {zoom}"
         )
 
     def show_correlation_loading(self) -> None:

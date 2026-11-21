@@ -99,7 +99,8 @@ map view: **drag to pan and scroll to zoom**, the gage list plus tiles reload fo
 you select, and **resizing the window** fetches tiles/gages for the newly exposed area. Zoom is
 independent of any preset: **− / +** step the level, **Fit gages** frames every visible station,
 **Recenter** returns to the loaded site **without resetting your zoom**, and the **Filter** box
-matches station names or numbers.
+matches station names or numbers. Panning moves the map immediately; tiles are cached per zoom
+and prefetched ~35 % beyond the viewport, so a slow refresh neither blanks nor snaps the view.
 Click any dot to load that stream. For the current view it then:
 
 - fetches 1–3 years of **daily mean flow** for the six gages nearest the loaded site;
