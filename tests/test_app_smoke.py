@@ -10,7 +10,7 @@ try:
 except Exception:  # pragma: no cover
     tk = None
 
-from streamstudy.app import StreamStudyApp, normalize_site
+from streamstudy.app import StreamStudyApp, normalize_site, parse_site_number
 from streamstudy.loader import LoadOptions
 from streamstudy.providers import (
     CoCoRaHSProvider,
@@ -28,9 +28,22 @@ class NormalizeSiteTest(unittest.TestCase):
         self.assertEqual(normalize_site("0423205010"), "0423205010")
         self.assertEqual(normalize_site(""), "")
 
+    def test_parse_picker_label(self):
+        self.assertEqual(
+            parse_site_number(
+                "0423205010 \u2014 IRONDEQUOIT CR ABOVE BLOSSOM RD NEAR ROCHESTER NY"
+            ),
+            "0423205010",
+        )
+        self.assertEqual(parse_site_number("USGS-0423205010"), "0423205010")
+        self.assertEqual(parse_site_number(" 0423205010 "), "0423205010")
+        self.assertEqual(parse_site_number("Irondequoit"), "")
+
 
 @unittest.skipIf(tk is None, "tkinter is not available")
 class AppSmokeTest(unittest.TestCase):
+    # (tests defined below)
+
     def setUp(self):
         try:
             self.root = tk.Tk()
@@ -62,6 +75,13 @@ class AppSmokeTest(unittest.TestCase):
         except tk.TclError:  # pragma: no cover
             pass
         self.tmp.cleanup()
+
+    def test_site_pulldown_shows_names(self):
+        self.assertIn("IRONDEQUOIT", self.app.site_var.get())
+        values = self.app.site_combo.cget("values")
+        text = " ".join(values) if isinstance(values, tuple) else str(values)
+        self.assertIn("0423205010", text)
+        self.assertIn("IRONDEQUOIT", text)
 
     def test_tabs(self):
         labels = [self.app.notebook.tab(tab, "text") for tab in self.app.notebook.tabs()]

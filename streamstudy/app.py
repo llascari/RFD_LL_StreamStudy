@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import queue
+import re
 import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -67,6 +68,18 @@ def normalize_site(value: str) -> str:
     return text.strip()
 
 
+_SITE_ID = re.compile(r"(\d{4,15})")
+
+
+def parse_site_number(value: str) -> str:
+    """Pull the USGS site number out of a picker label or a typed entry."""
+    text = (value or "").strip()
+    match = _SITE_ID.search(text)
+    if match:
+        return match.group(1)
+    return text if text.isdigit() else ""
+
+
 class StreamStudyApp:
     def __init__(
         self,
@@ -81,6 +94,10 @@ class StreamStudyApp:
         self.loader = BundleLoader.from_dict(self.providers)
         self.settings_path = settings_path
         self.settings = load_settings(settings_path)
+        self.site_names = {
+            str(number): str(name)
+            for number, name in (self.settings.get("site_names") or {}).items()
+        }
         self.days = int(self.settings.get("days", 14))
         self.bundle: DataBundle | None = None
         self.history_years = int(self.settings.get("history_years", 3))
@@ -119,7 +136,7 @@ class StreamStudyApp:
         self.root.rowconfigure(1, weight=1)
 
         # -- header
-        header = ttk.Frame(self.root, style="Header.TFrame", padding=(20, 12, 16, 12))
+        header = ttk.Frame(self.root, style="Header.TFrame", padding=(20, 10, 16, 10))
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(1, weight=1)
 
@@ -136,27 +153,11 @@ class StreamStudyApp:
             font=(family, 9),
         ).pack(anchor="w")
 
-        controls = ttk.Frame(header, style="Header.TFrame")
-        controls.grid(row=0, column=2, sticky="e")
-        ttk.Label(controls, text="USGS site", style="HeaderMuted.TLabel").pack(
-            side="left", padx=(0, 6)
-        )
-        self.site_var = tk.StringVar(value=str(self.settings.get("last_site", DEFAULT_SITE)))
-        self.site_combo = ttk.Combobox(
-            controls,
-            textvariable=self.site_var,
-            width=14,
-            values=self.settings.get("recent_sites", []),
-        )
-        self.site_combo.pack(side="left")
-        self.site_combo.bind("<Return>", lambda _event: self.reload())
-        ttk.Button(
-            controls, text="Load", style="Accent.TButton", command=self.reload
-        ).pack(side="left", padx=(8, 4))
-
+        right_controls = ttk.Frame(header, style="Header.TFrame")
+        right_controls.grid(row=0, column=2, sticky="e")
         self.days_var = tk.StringVar(value=f"{self.days} days")
         days_box = ttk.Combobox(
-            controls,
+            right_controls,
             textvariable=self.days_var,
             width=8,
             state="readonly",
@@ -164,9 +165,29 @@ class StreamStudyApp:
         )
         days_box.pack(side="left", padx=4)
         days_box.bind("<<ComboboxSelected>>", self._on_days_changed)
-        ttk.Button(controls, text="Refresh", command=self.refresh).pack(
+        ttk.Button(right_controls, text="Refresh", command=self.refresh).pack(
             side="left", padx=(4, 0)
         )
+
+        picker = ttk.Frame(header, style="Header.TFrame")
+        picker.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        picker.columnconfigure(1, weight=1)
+        ttk.Label(picker, text="USGS site", style="HeaderMuted.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(0, 6)
+        )
+        last_site = str(self.settings.get("last_site", DEFAULT_SITE))
+        self.site_var = tk.StringVar(value=self._site_label(last_site))
+        self.site_combo = ttk.Combobox(
+            picker,
+            textvariable=self.site_var,
+            width=70,
+            values=self._recent_labels(),
+        )
+        self.site_combo.grid(row=0, column=1, sticky="ew")
+        self.site_combo.bind("<Return>", lambda _event: self.reload())
+        ttk.Button(
+            picker, text="Load", style="Accent.TButton", command=self.reload
+        ).grid(row=0, column=2, padx=(8, 0))
 
         self.title_label = tk.Label(
             header,
@@ -176,15 +197,15 @@ class StreamStudyApp:
             font=(family, 12, "bold"),
             anchor="w",
         )
-        self.title_label.grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        self.title_label.grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 0))
         self.sub_label = tk.Label(
             header, text="", bg=SURFACE, fg=MUTED, font=(family, 9), anchor="w"
         )
-        self.sub_label.grid(row=2, column=0, columnspan=2, sticky="w")
+        self.sub_label.grid(row=3, column=0, columnspan=2, sticky="w")
         self.fetched_label = tk.Label(
             header, text="", bg=SURFACE, fg=MUTED, font=(family, 8), anchor="e"
         )
-        self.fetched_label.grid(row=1, column=2, rowspan=2, sticky="e", pady=(10, 0))
+        self.fetched_label.grid(row=2, column=2, rowspan=2, sticky="e", pady=(10, 0))
 
         # -- tabs
         self.notebook = ttk.Notebook(self.root)
@@ -258,7 +279,7 @@ class StreamStudyApp:
         self.root.destroy()
 
     def load_site(self, site_number: str, days: int | None = None) -> None:
-        number = normalize_site(site_number)
+        number = parse_site_number(site_number)
         if not number:
             messagebox.showwarning(
                 APP_NAME, "Enter a USGS site number, e.g. 0423205010.", parent=self.root
@@ -624,6 +645,17 @@ class StreamStudyApp:
     def show_about(self) -> None:
         messagebox.showinfo(f"About {APP_NAME}", ABOUT_TEXT, parent=self.root)
 
+    # -- site picker ---------------------------------------------------
+    def _site_label(self, number: str) -> str:
+        name = self.site_names.get(number, "")
+        return f"{number} \u2014 {name}" if name else number
+
+    def _recent_labels(self) -> list[str]:
+        return [
+            self._site_label(str(number))
+            for number in self.settings.get("recent_sites", [])
+        ]
+
     def apply_bundle(self, bundle: DataBundle) -> None:
         self.bundle = bundle
         site = bundle.site
@@ -642,7 +674,10 @@ class StreamStudyApp:
         warning = f"  \u00b7  {len(bundle.errors)} warning(s)" if bundle.errors else ""
         self.fetched_label.configure(text=f"Updated {stamp}{warning}")
 
-        self.site_var.set(site.number)
+        if site.name:
+            self.site_names[site.number] = site.name
+        self.settings["site_names"] = dict(self.site_names)
+        self.site_var.set(self._site_label(site.number))
         for view in (
             self.home_view,
             self.hydro_view,
@@ -661,7 +696,8 @@ class StreamStudyApp:
 
         self.settings = remember_site(self.settings, site.number)
         self.settings["days"] = self.days
-        self.site_combo.configure(values=self.settings["recent_sites"])
+        self.settings["site_names"] = dict(self.site_names)
+        self.site_combo.configure(values=self._recent_labels())
         save_settings(self.settings, self.settings_path)
         self._ensure_history()
         self._ensure_map()

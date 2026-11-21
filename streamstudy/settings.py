@@ -14,6 +14,7 @@ DEFAULTS = {
     "recent_sites": [DEFAULT_SITE],
     "days": 14,
     "history_years": 3,
+    "site_names": {},
     "map_radius": 0.5,
     "map_years": 2,
     "coco_station": "",
@@ -50,6 +51,11 @@ def load_settings(path: str | Path | None = None) -> dict:
         pass
     if data["days"] not in ALLOWED_DAYS:
         data["days"] = DEFAULTS["days"]
+    names = data.get("site_names")
+    if not isinstance(names, dict):
+        data["site_names"] = {}
+    else:
+        data["site_names"] = {str(key): str(value) for key, value in names.items()}
     if data["history_years"] not in ALLOWED_HISTORY_YEARS:
         data["history_years"] = DEFAULTS["history_years"]
     if float(data.get("map_radius", 0.5)) not in ALLOWED_MAP_RADII:
