@@ -28,6 +28,7 @@ class StubApp:
 
     def __init__(self) -> None:
         self.loaded: list[str] = []
+        self.view_changes: list[tuple[float, float, int]] = []
 
     def load_site(self, number: str) -> None:
         self.loaded.append(number)
@@ -42,6 +43,12 @@ class StubApp:
         return None
 
     def request_regional(self, force: bool = False) -> None:  # pragma: no cover
+        return None
+
+    def request_map_view(self, latitude: float, longitude: float, zoom: int) -> None:
+        self.view_changes.append((latitude, longitude, zoom))
+
+    def recenter_map(self) -> None:  # pragma: no cover
         return None
 
 
@@ -84,7 +91,7 @@ class MapWidgetTest(unittest.TestCase):
     def test_markers_and_tiles_draw(self):
         self.view.set_map(
             (self.site.latitude, self.site.longitude),
-            0.5,
+            10,
             [self.site, self.other],
             {(10, 1, 1): TINY_PNG},
             self.site.number,
@@ -98,21 +105,76 @@ class MapWidgetTest(unittest.TestCase):
     def test_marker_click_loads_site(self):
         self.view.set_map(
             (self.site.latitude, self.site.longitude),
-            0.5,
+            10,
             [self.site, self.other],
             {},
             self.site.number,
         )
         self.root.update()
         x, y = self.view.map._site_pixel(self.other)
+        event = self._event(x, y)
+        self.view.map._on_press(event)
+        self.view.map._on_release(event)
+        self.assertEqual(self.app.loaded, [self.other.number])
 
+    @staticmethod
+    def _event(x: float, y: float):
         class Event:
             pass
 
         event = Event()
         event.x, event.y = x, y
-        self.view.map._on_click(event)
-        self.assertEqual(self.app.loaded, [self.other.number])
+        return event
+
+    def test_drag_pans_and_requests_a_new_view(self):
+        self.view.set_map(
+            (self.site.latitude, self.site.longitude),
+            10,
+            [self.site, self.other],
+            {},
+            self.site.number,
+        )
+        self.root.update()
+        start = self._event(400, 300)
+        end = self._event(470, 330)
+        self.view.map._on_press(start)
+        self.view.map._on_drag(end)
+        self.view.map._on_release(end)
+        self.assertTrue(self.app.view_changes)
+        latitude, longitude, zoom = self.app.view_changes[-1]
+        self.assertEqual(zoom, 10)
+        self.assertLess(longitude, self.site.longitude)  # dragged east -> view moves west
+        self.assertGreater(latitude, self.site.latitude)  # dragged down -> view moves north
+
+    def test_name_filter(self):
+        self.view.set_map(
+            (self.site.latitude, self.site.longitude),
+            10,
+            [self.site, self.other],
+            {},
+            self.site.number,
+        )
+        self.root.update()
+        self.view.map.set_filter("allen")
+        self.assertEqual(self.view.map.visible_sites(), [self.other])
+        self.view.map.set_filter("0423")
+        self.assertEqual(len(self.view.map.visible_sites()), 2)
+        self.view.map.set_filter("nothing-matches")
+        self.assertEqual(self.view.map.visible_sites(), [])
+
+    def test_wheel_zooms(self):
+        self.view.set_map(
+            (self.site.latitude, self.site.longitude),
+            10,
+            [self.site],
+            {},
+            self.site.number,
+        )
+        self.root.update()
+        self.view.map._on_wheel(self._event(400, 300), 1)
+        self.assertEqual(self.app.view_changes[-1][2], 11)
+        self.view.map._on_wheel(self._event(400, 300), -1)
+        self.assertEqual(self.app.view_changes[-1][2], 9)
 
     def test_heatmap_and_rain_table(self):
         sites = (

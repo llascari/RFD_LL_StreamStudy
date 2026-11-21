@@ -7,6 +7,9 @@
 > forecasts. Do not use this app for flood safety, emergency planning, engineering, insurance, or
 > any decision where being wrong matters. All data remain provisional and the source agencies
 > remain authoritative. Expect rough edges and breaking API changes.
+>
+> Built by prompting: **DeepSeek V4.1 Flash** running in **LM Studio Bionic** (LM Studio's
+> agentic coding harness) wrote the implementation; a human supplied the requirements and reviews.
 
 An experimental desktop explorer for **USGS stream gages, National Weather Service forecasts, and
 precipitation data** — built with Python and Tkinter, with no third-party dependencies.
@@ -43,13 +46,14 @@ feeds them**.
   response: storms detected, response rate (cfs per inch), time to peak, recession half-life,
   a rainfall-vs-rise scatter with the storm examples behind the fit, and a forecast-driven
   predicted hydrograph with a 10–90 % band and the most similar past storms
-- **Map & Correlation** — an OpenStreetMap basemap of nearby gages (0.25°–2° radius) where every
-  dot is clickable; pair up to six regional streams by lagged log-flow correlation (±5 days) and
-  correlate each stream with ERA5, the CoCoRaHS gauge and any on-site USGS rain gauge
+- **Map & Correlation** — a navigable OpenStreetMap view: **drag to pan, scroll to zoom**, filter
+  gages by name, and click any dot to load it (gages and tiles reload for the selected area).
+  It pairs up to six regional streams by lagged log-flow correlation (±5 days) and correlates each
+  stream with ERA5, the CoCoRaHS gauge and any on-site USGS rain gauge
 - **Forecast** — NWS daily periods with full discussion text, plus the NWS gridpoint
   **quantitative precipitation forecast** (6-hourly bars) and peak precipitation probability
-- **Site finder** — search active USGS surface-water gages by state, or within ~50 km of the
-  loaded site, then double-click to load one
+- **Site finder** — search active USGS surface-water gages by state, within ~50 km of the
+  loaded site, or by **station name** (USGS OGC API), then double-click to load one
 - **Resilient by design** — every provider is independent: if one API is down the others still
   render, and the failure is shown as a warning instead of a broken window
 - **Fast and polite** — background threads (results marshalled through a queue, never touching Tk
@@ -79,8 +83,10 @@ see how this particular stream has behaved, not as a flood forecast.
 
 ## Regional map and cross-correlation
 
-The **Map & Correlation** tab puts the nearby gages on an OpenStreetMap basemap; click any dot to
-load that stream. For the current view it then:
+The **Map & Correlation** tab puts the nearby gages on an OpenStreetMap basemap. It is a real
+map view: **drag to pan and scroll to zoom**, and the gage list plus tiles reload for whatever
+area you select; **Recenter** returns to the loaded site and the **Filter** box matches station
+names or numbers. Click any dot to load that stream. For the current view it then:
 
 - fetches 1–3 years of **daily mean flow** for the six gages nearest the loaded site;
 - computes pairwise **log-flow Pearson r at the best lag within ±5 days** — a positive lag means
@@ -103,7 +109,7 @@ Everything comes from documented, structured APIs — no HTML scraping:
 | **USGS NWIS** | `waterservices.usgs.gov/nwis/iv/` (JSON) | Recent discharge, gage height, water temperature, on-site precipitation (≤120 days) | none |
 | **USGS NWIS** | `waterservices.usgs.gov/nwis/dv/` (JSON) | **Daily mean flow for the multi-year response fit** | none |
 | **USGS NWIS** | `waterservices.usgs.gov/nwis/site/` (RDB) | Site metadata and gage search (`siteType=ST`, `parameterCd=00060`) | none |
-| **USGS Water Data** | `api.waterdata.usgs.gov/ogcapi/v0/…` | The newer OGC API — verified working; NWIS IV is used for its broader parameter coverage | none |
+| **USGS Water Data** | `api.waterdata.usgs.gov/ogcapi/v0/…` | Station **name search** (`monitoring-locations` with a CQL2 `LIKE` filter), plus the newer API generally | none |
 | **NWS** | `api.weather.gov/points/…`, `/gridpoints/…`, `/stations/…/observations` | Nearest ASOS observations, daily/hourly forecast, gridpoint QPF | none (User-Agent required) |
 | **Open-Meteo** | `api.open-meteo.com/v1/forecast` | Hourly precipitation + probability, daily sums (past 60 days, 2-day forecast) | none |
 | **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse; regional rain series) | none |
@@ -201,7 +207,7 @@ RFD_LL_StreamStudy/
 │   └── ui/                # theme, charts, widgets and the seven views (incl. map_view)
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 83 tests (providers, models, correlation, map, Tk smoke)
+│   └── test_*.py          # 95 tests (providers, models, correlation, map, name search, Tk smoke)
 ├── docs/                  # screenshots
 ├── pyproject.toml
 └── .github/workflows/ci.yml
@@ -223,6 +229,14 @@ The GUI tests skip themselves automatically when no display is available, so the
 in plain CI containers. Provider fixtures were captured from the live APIs and trimmed; the
 response model is tested on synthetic storm series where the true response (150 cfs/in, 24 h lag,
 1.5-day half-life) is known.
+
+## Credits and how this was made
+
+**Human-prompted, LLM-implemented.** The idea, requirements, reviews and corrections came from
+the human maintainer. Essentially all of the code, tests, documentation, CI configuration and
+screenshots were written by an LLM — **DeepSeek V4.1 Flash** running in **LM Studio Bionic**,
+the agentic coding harness of the [LM Studio](https://lmstudio.ai/) desktop app. The in-app
+**About** button shows the same note. See [CREDITS.md](CREDITS.md) for the per-area log.
 
 ## Attribution
 

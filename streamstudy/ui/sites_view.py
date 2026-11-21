@@ -54,6 +54,16 @@ class SitesView(ttk.Frame):
         ttk.Button(
             controls, text="Near current site", command=self._search_nearby
         ).pack(side="left", padx=4)
+        ttk.Label(controls, text="Name", style="Muted.TLabel").pack(
+            side="left", padx=(16, 6)
+        )
+        self.name_var = tk.StringVar()
+        name_entry = ttk.Entry(controls, textvariable=self.name_var, width=20)
+        name_entry.pack(side="left")
+        name_entry.bind("<Return>", lambda _event: self._search_name())
+        ttk.Button(controls, text="Find by name", command=self._search_name).pack(
+            side="left", padx=(6, 0)
+        )
         self.status_var = tk.StringVar(value="Pick a state, or search near the loaded site.")
         ttk.Label(
             controls, textvariable=self.status_var, style="Muted.TLabel"
@@ -94,6 +104,17 @@ class SitesView(ttk.Frame):
         self.app.settings["state"] = state
         work = lambda: self.app.providers["usgs"].search_sites(state=state)  # noqa: E731
         self._run(work, f"gages in {state}")
+
+    def _search_name(self) -> None:
+        term = self.name_var.get().strip()
+        if not term:
+            self.status_var.set("Type part of a station name, e.g. Irondequoit.")
+            return
+        state = self.state_var.get().strip().upper() or None
+        work = lambda: self.app.providers["usgs"].search_by_name(  # noqa: E731
+            term, state=state, limit=300
+        )
+        self._run(work, f'named "{term}"')
 
     def _search_nearby(self) -> None:
         bundle = self.app.bundle

@@ -48,9 +48,28 @@ def global_pixel(latitude: float, longitude: float, zoom: int) -> tuple[float, f
     return x, y
 
 
-def tile_coords(latitude: float, longitude: float, radius: float, zoom: int) -> list[tuple[int, int, int]]:
-    west, east = longitude - radius * 1.6, longitude + radius * 1.6
-    south, north = latitude - radius * 1.1, latitude + radius * 1.1
+def pixel_to_latlon(x: float, y: float, zoom: int) -> tuple[float, float]:
+    """Inverse Web-Mercator for the global pixel grid at ``zoom``."""
+    size = 256.0 * (2**zoom)
+    longitude = x / size * 360.0 - 180.0
+    n = math.pi - 2.0 * math.pi * y / size
+    latitude = math.degrees(math.atan(math.sinh(n)))
+    return latitude, longitude
+
+
+def view_bbox(
+    center: tuple[float, float], zoom: int, width: int, height: int
+) -> tuple[float, float, float, float]:
+    """(west, south, east, north) covered by a canvas of the given size."""
+    centre_x, centre_y = global_pixel(*center, zoom)
+    north, west = pixel_to_latlon(centre_x - width / 2, centre_y - height / 2, zoom)
+    south, east = pixel_to_latlon(centre_x + width / 2, centre_y + height / 2, zoom)
+    return west, south, east, north
+
+
+def tiles_for_bbox(
+    west: float, south: float, east: float, north: float, zoom: int
+) -> list[tuple[int, int, int]]:
     x0, y0 = global_pixel(north, west, zoom)
     x1, y1 = global_pixel(south, east, zoom)
     count = 2**zoom
@@ -59,7 +78,7 @@ def tile_coords(latitude: float, longitude: float, radius: float, zoom: int) -> 
         for tile_y in range(int(y0 // 256), int(y1 // 256) + 1):
             if 0 <= tile_y < count:
                 coords.append((zoom, tile_x % count, tile_y))
-    return coords[:24]
+    return coords[:36]
 
 
 def fetch_tiles(client, coords: list[tuple[int, int, int]]) -> dict[tuple[int, int, int], bytes]:
@@ -93,34 +112,47 @@ def heat_colour(value: float) -> str:
 # map canvas
 # --------------------------------------------------------------------------- #
 class MapCanvas(tk.Canvas):
-    def __init__(self, master: tk.Misc, on_select) -> None:
+    def __init__(self, master: tk.Misc, on_select, on_view_change=None) -> None:
         super().__init__(master, bg=BG, highlightthickness=0, bd=0)
         self._on_select = on_select
+        self._on_view_change = on_view_change
         self._sites: list[Site] = []
         self._photos: dict[tuple[int, int, int], tk.PhotoImage] = {}
         self._center = (43.0, -77.0)
         self._current: str | None = None
         self._zoom = 10
         self._hover: Site | None = None
+        self._filter = ""
+        self._dx = 0.0
+        self._dy = 0.0
+        self._drag_origin: tuple[int, int] | None = None
+        self._dragged = False
 
         self.bind("<Configure>", lambda _event: self.redraw())
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda _event: self._set_hover(None))
-        self.bind("<Button-1>", self._on_click)
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<MouseWheel>", self._on_wheel)
+        self.bind("<Button-4>", lambda event: self._on_wheel(event, 1))
+        self.bind("<Button-5>", lambda event: self._on_wheel(event, -1))
 
     # -- data ----------------------------------------------------------
     def set_map(
         self,
         center: tuple[float, float],
+        zoom: int,
         sites: list[Site],
         tile_bytes: dict[tuple[int, int, int], bytes],
         current_id: str | None,
-        radius: float = 0.5,
     ) -> None:
         self._center = center
         self._sites = list(sites)
         self._current = current_id
-        self._zoom = zoom_for_radius(radius)
+        self._zoom = max(4, min(15, int(zoom)))
+        self._dx = 0.0
+        self._dy = 0.0
         self._photos = {}
         for key, payload in tile_bytes.items():
             try:
@@ -137,12 +169,33 @@ class MapCanvas(tk.Canvas):
         height = max(1, self.winfo_height())
         centre_x, centre_y = global_pixel(*self._center, self._zoom)
         x, y = global_pixel(site.latitude, site.longitude, self._zoom)
-        return width / 2 + x - centre_x, height / 2 + y - centre_y
+        return (
+            width / 2 + x - centre_x + self._dx,
+            height / 2 + y - centre_y + self._dy,
+        )
+
+    def set_filter(self, text: str) -> None:
+        """Filter visible markers by station name or number (case-insensitive)."""
+        cleaned = text.strip().lower()
+        if cleaned == self._filter:
+            return
+        self._filter = cleaned
+        self._hover = None
+        self.redraw()
+
+    def visible_sites(self) -> list[Site]:
+        if not self._filter:
+            return list(self._sites)
+        return [
+            site
+            for site in self._sites
+            if self._filter in site.name.lower() or self._filter in site.number.lower()
+        ]
 
     def _nearest(self, event_x: int, event_y: int, limit: float = 16.0) -> Site | None:
         best = None
         best_distance = limit**2
-        for site in self._sites:
+        for site in self.visible_sites():
             x, y = self._site_pixel(site)
             distance = (x - event_x) ** 2 + (y - event_y) ** 2
             if distance < best_distance:
@@ -160,10 +213,63 @@ class MapCanvas(tk.Canvas):
         self._hover = site
         self.redraw()
 
-    def _on_click(self, event: tk.Event) -> None:
+    def _on_press(self, event: tk.Event) -> None:
+        self._drag_origin = (event.x, event.y)
+        self._dragged = False
+        self.configure(cursor="fleur")
+
+    def _on_drag(self, event: tk.Event) -> None:
+        if self._drag_origin is None:
+            return
+        dx = event.x - self._drag_origin[0]
+        dy = event.y - self._drag_origin[1]
+        if abs(dx) + abs(dy) > 4:
+            self._dragged = True
+        self._dx, self._dy = float(dx), float(dy)
+        self._hover = None
+        self.redraw()
+
+    def _on_release(self, event: tk.Event) -> None:
+        if self._drag_origin is None:
+            return
+        self.configure(cursor="")
+        if self._dragged:
+            centre_x, centre_y = global_pixel(*self._center, self._zoom)
+            latitude, longitude = pixel_to_latlon(
+                centre_x - self._dx, centre_y - self._dy, self._zoom
+            )
+            self._dx = self._dy = 0.0
+            self._dragged = False
+            self._drag_origin = None
+            if self._on_view_change is not None:
+                self._on_view_change(latitude, longitude, self._zoom)
+            self.redraw()
+            return
+        self._drag_origin = None
         site = self._nearest(event.x, event.y)
         if site is not None:
             self._on_select(site)
+
+    def _on_wheel(self, event: tk.Event, direction: int | None = None) -> str:
+        if direction is None:
+            direction = 1 if getattr(event, "delta", 0) > 0 else -1
+        new_zoom = max(4, min(15, self._zoom + direction))
+        if new_zoom == self._zoom:
+            return "break"
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        centre_x, centre_y = global_pixel(*self._center, self._zoom)
+        offset_x = getattr(event, "x", width / 2) - width / 2
+        offset_y = getattr(event, "y", height / 2) - height / 2
+        factor = 2 ** (new_zoom - self._zoom)
+        global_x = (centre_x + offset_x) * factor
+        global_y = (centre_y + offset_y) * factor
+        latitude, longitude = pixel_to_latlon(
+            global_x - offset_x, global_y - offset_y, new_zoom
+        )
+        if self._on_view_change is not None:
+            self._on_view_change(latitude, longitude, new_zoom)
+        return "break"
 
     # -- drawing -------------------------------------------------------
     def redraw(self) -> None:
@@ -177,8 +283,8 @@ class MapCanvas(tk.Canvas):
         centre_x, centre_y = global_pixel(*self._center, self._zoom)
         drawn_tiles = 0
         for (zoom, tile_x, tile_y), photo in self._photos.items():
-            x = width / 2 + tile_x * 256 - centre_x
-            y = height / 2 + tile_y * 256 - centre_y
+            x = width / 2 + tile_x * 256 - centre_x + self._dx
+            y = height / 2 + tile_y * 256 - centre_y + self._dy
             if x > width or y > height or x + 256 < 0 or y + 256 < 0:
                 continue
             self.create_image(x, y, image=photo, anchor="nw")
@@ -199,7 +305,7 @@ class MapCanvas(tk.Canvas):
             )
 
         shown = 0
-        for site in self._sites:
+        for site in self.visible_sites():
             x, y = self._site_pixel(site)
             if not (-20 <= x <= width + 20 and -20 <= y <= height + 20):
                 continue
@@ -228,13 +334,28 @@ class MapCanvas(tk.Canvas):
                     font=(family, 8, "bold"),
                 )
 
+        if self._filter:
+            legend = (
+                f"{len(self.visible_sites())} of {len(self._sites)} gages match "
+                f"\u00b7 click a dot to load it"
+            )
+        else:
+            legend = f"{shown} of {len(self._sites)} gages shown \u00b7 click a dot to load it"
         self.create_text(
             10,
             10,
-            text=f"{shown} of {len(self._sites)} gages shown \u00b7 click a dot to load it",
+            text=legend,
             anchor="nw",
             fill=MUTED,
             font=(family, 8),
+        )
+        self.create_text(
+            10,
+            height - 6,
+            text="drag to pan \u00b7 scroll to zoom",
+            anchor="sw",
+            fill=MUTED,
+            font=(family, 7),
         )
         self.create_text(
             width - 8,
@@ -409,13 +530,22 @@ class MapView(ttk.Frame):
             header,
             text="Loading nearby gages\u2026",
             style="Muted.TLabel",
-            wraplength=650,
+            wraplength=560,
             justify="left",
         )
         self.caption.grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         controls = ttk.Frame(header)
         controls.grid(row=0, column=1, rowspan=2, sticky="e")
+        ttk.Label(controls, text="Filter", style="Muted.TLabel").pack(
+            side="left", padx=(0, 6)
+        )
+        self.filter_var = tk.StringVar()
+        filter_entry = ttk.Entry(controls, textvariable=self.filter_var, width=18)
+        filter_entry.pack(side="left", padx=(0, 12))
+        filter_entry.bind(
+            "<KeyRelease>", lambda _event: self.map.set_filter(self.filter_var.get())
+        )
         ttk.Label(controls, text="Radius", style="Muted.TLabel").pack(
             side="left", padx=(0, 6)
         )
@@ -429,8 +559,11 @@ class MapView(ttk.Frame):
         )
         radius_box.pack(side="left")
         radius_box.bind("<<ComboboxSelected>>", self._on_radius)
-        ttk.Button(controls, text="Reload map", command=self._reload_map).pack(
+        ttk.Button(controls, text="Recenter", command=self._recenter).pack(
             side="left", padx=(8, 0)
+        )
+        ttk.Button(controls, text="Reload map", command=self._reload_map).pack(
+            side="left", padx=(4, 0)
         )
 
         body = ttk.Frame(self)
@@ -443,7 +576,11 @@ class MapView(ttk.Frame):
         map_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         map_frame.columnconfigure(0, weight=1)
         map_frame.rowconfigure(0, weight=1)
-        self.map = MapCanvas(map_frame, on_select=self._on_site_clicked)
+        self.map = MapCanvas(
+            map_frame,
+            on_select=self._on_site_clicked,
+            on_view_change=self._on_view_change,
+        )
         self.map.grid(row=0, column=0, sticky="nsew")
 
         panel = ttk.Frame(body)
@@ -535,6 +672,18 @@ class MapView(ttk.Frame):
     def _reload_map(self) -> None:
         self.app.request_map(force=True)
 
+    def _recenter(self) -> None:
+        self.app.recenter_map()
+
+    def _on_view_change(self, latitude: float, longitude: float, zoom: int) -> None:
+        self.app.request_map_view(latitude, longitude, zoom)
+
+    def map_size(self) -> tuple[int, int]:
+        """Canvas size, with a sane fallback while the tab is still hidden."""
+        width = self.map.winfo_width()
+        height = self.map.winfo_height()
+        return (width if width > 50 else 900, height if height > 50 else 700)
+
     def _recompute(self) -> None:
         self.app.request_regional(force=True)
 
@@ -552,19 +701,16 @@ class MapView(ttk.Frame):
     def set_map(
         self,
         center: tuple[float, float],
-        radius: float,
+        zoom: int,
         sites: list[Site],
         tiles: dict[tuple[int, int, int], bytes],
         current_id: str,
     ) -> None:
         self._sites = list(sites)
-        self.radius_var.set(self._label_for(radius))
-        self.map.set_map(center, sites, tiles, current_id, radius)
+        self.map.set_map(center, zoom, sites, tiles, current_id)
+        self.map.set_filter(self.filter_var.get())
         self.caption.configure(
-            text=(
-                f"Gages around USGS {current_id}  \u00b7  {len(sites)} within the view  "
-                f"\u00b7  basemap \u00a9 OpenStreetMap"
-            )
+            text=f"USGS {current_id}  \u00b7  {len(sites)} gages in view  \u00b7  zoom {zoom}"
         )
 
     def show_correlation_loading(self) -> None:

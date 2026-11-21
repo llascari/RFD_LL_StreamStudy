@@ -48,6 +48,7 @@ def default_mapping() -> dict[str, str]:
         "gridpoints/": fixture("nws_grid.json"),
         "/points/": fixture("nws_points.json"),
         "exportreports.aspx": fixture("cocorahs_station.csv"),
+        "monitoring-locations": fixture("ogc_locations.json"),
         "/nwis/iv/": fixture("usgs_iv.json"),
         "/nwis/dv/": fixture("usgs_dv.json"),
         "/nwis/site/": fixture("usgs_site.rdb"),

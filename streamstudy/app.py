@@ -8,6 +8,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from .credits import ABOUT_TEXT
 from .http import HttpClient
 from .loader import BundleLoader, LoadOptions
 from .models import DataBundle
@@ -22,7 +23,13 @@ from .settings import (
 from .ui.forecast_view import ForecastView
 from .ui.home_view import HomeView
 from .ui.hydro_view import HydroView
-from .ui.map_view import MapView, fetch_tiles, tile_coords, zoom_for_radius
+from .ui.map_view import (
+    MapView,
+    fetch_tiles,
+    tiles_for_bbox,
+    view_bbox,
+    zoom_for_radius,
+)
 from .ui.precip_view import PrecipView
 from .ui.response_view import ResponseView
 from .ui.sites_view import SitesView
@@ -83,6 +90,8 @@ class StreamStudyApp:
         self.map_loading = False
         self._map_site: str | None = None
         self._map_sites: list = []
+        self._map_center: tuple[float, float] | None = None
+        self._map_zoom = 10
         self._map_token = 0
         self._regional_token = 0
         self._regional_gauge = False
@@ -119,7 +128,7 @@ class StreamStudyApp:
         ).pack(anchor="w")
         tk.Label(
             brand,
-            text="experimental  \u00b7  USGS stream gages  \u00b7  NWS weather  \u00b7  rainfall",
+            text="experimental  \u00b7  AI-built  \u00b7  USGS stream gages  \u00b7  NWS weather  \u00b7  rainfall",
             bg=SURFACE,
             fg=MUTED,
             font=(family, 9),
@@ -210,8 +219,11 @@ class StreamStudyApp:
         )
         self.progress.grid(row=0, column=1, padx=(0, 14))
         self.progress.grid_remove()
+        ttk.Button(footer, text="About", command=self.show_about).grid(
+            row=0, column=2, padx=(0, 12)
+        )
         dots = ttk.Frame(footer)
-        dots.grid(row=0, column=2, sticky="e")
+        dots.grid(row=0, column=3, sticky="e")
         self.source_dots: dict[str, tk.Label] = {}
         for key, label in SOURCE_LABELS:
             widget = tk.Label(
@@ -444,22 +456,47 @@ class StreamStudyApp:
         site = self.bundle.site
         if not force and self._map_site == site.number:
             return
-        radius = self.map_radius
+        self.map_view.show_map_loading()
+        self._request_map_view(
+            (site.latitude, site.longitude),
+            zoom_for_radius(self.map_radius),
+            rerun_regional=True,
+        )
+
+    def request_map_view(self, latitude: float, longitude: float, zoom: int) -> None:
+        """Pan/zoom callback: reload tiles and gages for the selected area."""
+        center = (float(latitude), float(longitude))
+        zoom = max(4, min(15, int(zoom)))
+        if (
+            self._map_center is not None
+            and abs(center[0] - self._map_center[0]) < 1e-5
+            and abs(center[1] - self._map_center[1]) < 1e-5
+            and zoom == self._map_zoom
+        ):
+            return
+        self._request_map_view(center, zoom, rerun_regional=False)
+
+    def recenter_map(self) -> None:
+        self.request_map(force=True)
+
+    def _request_map_view(
+        self, center: tuple[float, float], zoom: int, *, rerun_regional: bool
+    ) -> None:
+        if self.bundle is None:
+            return
+        site = self.bundle.site
         self._map_token += 1
         token = self._map_token
         self.map_loading = True
-        self._map_site = None
-        self.map_view.show_map_loading()
-        bbox = (
-            site.longitude - radius * 1.6,
-            site.latitude - radius * 1.1,
-            site.longitude + radius * 1.6,
-            site.latitude + radius * 1.1,
-        )
-        zoom = zoom_for_radius(radius)
+        self._map_center = center
+        self._map_zoom = zoom
+        width, height = self.map_view.map_size()
+        west, south, east, north = view_bbox(center, zoom, width, height)
 
         def work():
-            sites = self.providers["usgs"].search_sites(bbox=bbox, limit=200)
+            sites = self.providers["usgs"].search_sites(
+                bbox=(west, south, east, north), limit=250
+            )
             ordered = []
             seen = set()
             for candidate in (site, *sites):
@@ -468,15 +505,28 @@ class StreamStudyApp:
                 seen.add(candidate.number)
                 ordered.append(candidate)
             tiles = fetch_tiles(
-                self.client, tile_coords(site.latitude, site.longitude, radius, zoom)
+                self.client,
+                tiles_for_bbox(west, south, east, north, zoom),
             )
             return ordered, tiles
 
         self.run_async(
-            work, lambda result, error: self._finish_map(token, site, radius, result, error)
+            work,
+            lambda result, error: self._finish_map(
+                token, site, center, zoom, rerun_regional, result, error
+            ),
         )
 
-    def _finish_map(self, token: int, site, radius: float, result, error) -> None:
+    def _finish_map(
+        self,
+        token: int,
+        site,
+        center: tuple[float, float],
+        zoom: int,
+        rerun_regional: bool,
+        result,
+        error,
+    ) -> None:
         if token != self._map_token:
             return
         self.map_loading = False
@@ -486,10 +536,11 @@ class StreamStudyApp:
         sites, tiles = result
         self._map_sites = list(sites)
         self._map_site = site.number
-        self.map_view.set_map(
-            (site.latitude, site.longitude), radius, self._map_sites, tiles, site.number
-        )
-        self.request_regional()
+        self._map_center = center
+        self._map_zoom = zoom
+        self.map_view.set_map(center, zoom, self._map_sites, tiles, site.number)
+        if rerun_regional:
+            self.request_regional()
 
     def request_regional(self, force: bool = False) -> None:
         if not self._map_sites or self.bundle is None:
@@ -565,6 +616,9 @@ class StreamStudyApp:
 
     def show_map(self) -> None:
         self.notebook.select(self.map_view)
+
+    def show_about(self) -> None:
+        messagebox.showinfo(f"About {APP_NAME}", ABOUT_TEXT, parent=self.root)
 
     def apply_bundle(self, bundle: DataBundle) -> None:
         self.bundle = bundle

@@ -12,6 +12,9 @@ from ..models import Sample, Series, Site, to_utc
 IV_URL = "https://waterservices.usgs.gov/nwis/iv/"
 DV_URL = "https://waterservices.usgs.gov/nwis/dv/"
 SITE_URL = "https://waterservices.usgs.gov/nwis/site/"
+OGC_URL = (
+    "https://api.waterdata.usgs.gov/ogcapi/v0/collections/monitoring-locations/items"
+)
 USER_AGENT = "RFD-StreamStudy/0.1 (+https://github.com/llascari/RFD_StreamStudy)"
 
 PARAMETERS = {
@@ -114,6 +117,39 @@ def parse_site_rdb(text: str) -> list[Site]:
             continue
         seen.add(site.number)
         sites.append(site)
+    return sites
+
+
+STATE_BY_POSTAL = {postal: code for code, postal in STATE_FIPS.items()}
+
+
+def parse_ogc_sites(payload: dict) -> list[Site]:
+    """Parse monitoring-locations GeoJSON from the USGS Water Data OGC API."""
+    sites: list[Site] = []
+    seen: set[str] = set()
+    for feature in payload.get("features", []) or []:
+        props = feature.get("properties", {}) or {}
+        number = str(props.get("monitoring_location_number", "")).strip()
+        coordinates = (feature.get("geometry") or {}).get("coordinates") or []
+        if not number or number in seen or len(coordinates) < 2:
+            continue
+        state_code = str(props.get("state_code", "")).zfill(2)
+        seen.add(number)
+        sites.append(
+            Site(
+                number=number,
+                name=props.get("monitoring_location_name", "") or number,
+                latitude=float(coordinates[1]),
+                longitude=float(coordinates[0]),
+                agency=props.get("agency_code", "USGS") or "USGS",
+                state=STATE_FIPS.get(state_code, ""),
+                county=str(props.get("county_name", "")).replace(" County", ""),
+                huc=props.get("hydrologic_unit_code", "") or "",
+                site_type=props.get("site_type", "") or "",
+                drainage_area_sq_mi=_number(props.get("drainage_area")),
+                altitude_ft=_number(props.get("altitude")),
+            )
+        )
     return sites
 
 
@@ -266,3 +302,37 @@ class UsgsProvider:
         if state:
             sites = [replace(site, state=site.state or state.upper()) for site in sites]
         return sites
+
+    def search_by_name(
+        self,
+        name: str,
+        *,
+        state: str | None = None,
+        site_type: str | None = "Stream",
+        limit: int = 150,
+    ) -> list[Site]:
+        """Global station-name search through the USGS Water Data OGC API.
+
+        NWIS station names are upper-case and its CQL2 ``LIKE`` is case-sensitive,
+        so the term is normalised; USGS site types are ``Stream``/``Lake``/…
+        """
+        term = name.strip().upper().replace("'", "''")
+        if not term:
+            return []
+        filters = [f"monitoring_location_name LIKE '%{term}%'"]
+        if state:
+            fips = STATE_BY_POSTAL.get(state.strip().upper())
+            if fips:
+                filters.append(f"state_code = '{fips}'")
+        if site_type:
+            filters.append(f"site_type = '{site_type}'")
+        payload = self._client.get_json(
+            OGC_URL,
+            {
+                "f": "json",
+                "limit": max(1, min(int(limit), 500)),
+                "filter": " AND ".join(filters),
+                "filter-lang": "cql2-text",
+            },
+        )
+        return parse_ogc_sites(payload)[: max(1, int(limit))]

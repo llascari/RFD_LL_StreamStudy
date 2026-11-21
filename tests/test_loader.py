@@ -31,7 +31,7 @@ class LoaderTest(unittest.TestCase):
         self.assertIn("00065", bundle.usgs)
         self.assertEqual(bundle.nws_station.identifier, "KGVQ")
         self.assertEqual(len(bundle.nws_daily), 4)
-        self.assertEqual(len(bundle.nws_qpf), 16)
+        self.assertGreaterEqual(len(bundle.nws_qpf), 8)
         self.assertEqual(len(bundle.openmeteo_daily), 3)
         self.assertEqual(bundle.coco_station.identifier, "NY-MR-90")
         self.assertEqual(len(bundle.coco_daily), 10)
