@@ -38,12 +38,14 @@ def pearson(xs: list[float], ys: list[float]) -> float:
     count = len(xs)
     if count < 2 or count != len(ys):
         return 0.0
-    mean_x = sum(xs) / count
-    mean_y = sum(ys) / count
-    covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    var_x = math.sqrt(sum((x - mean_x) ** 2 for x in xs))
-    var_y = math.sqrt(sum((y - mean_y) ** 2 for y in ys))
-    if var_x == 0 or var_y == 0:
+    # fsum keeps a constant series exactly constant (plain sum drifts on
+    # Python 3.10/3.11 and leaves ~1e-15 correlation noise).
+    mean_x = math.fsum(xs) / count
+    mean_y = math.fsum(ys) / count
+    covariance = math.fsum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    var_x = math.sqrt(math.fsum((x - mean_x) ** 2 for x in xs))
+    var_y = math.sqrt(math.fsum((y - mean_y) ** 2 for y in ys))
+    if var_x < 1e-12 or var_y < 1e-12:
         return 0.0
     return covariance / (var_x * var_y)
 
