@@ -56,8 +56,8 @@ feeds them**.
   a rainfall-vs-rise scatter with the storm examples behind the fit, and a forecast-driven
   predicted hydrograph with a 10–90 % band and the most similar past storms
 - **Map & Correlation** — a navigable OpenStreetMap view: **drag to pan, scroll to zoom**, and
-  **automatic reload on window resize**; filter gages by name, and click any dot to load it
-  (gages and tiles reload for the selected area).
+  **automatic reload on window resize**; **Recenter** keeps your zoom, **Fit gages** auto-frames
+  the visible stations, filter gages by name, and click any dot to load it.
   It pairs up to six regional streams by lagged log-flow correlation (±5 days) and correlates each
   stream with ERA5, the CoCoRaHS gauge and any on-site USGS rain gauge
 - **Forecast** — NWS daily periods with full discussion text, plus the NWS gridpoint
@@ -96,8 +96,10 @@ see how this particular stream has behaved, not as a flood forecast.
 
 The **Map & Correlation** tab puts the nearby gages on an OpenStreetMap basemap. It is a real
 map view: **drag to pan and scroll to zoom**, the gage list plus tiles reload for whatever area
-you select, and **resizing the window** fetches tiles/gages for the newly exposed area;
-**Recenter** returns to the loaded site and the **Filter** box matches station names or numbers.
+you select, and **resizing the window** fetches tiles/gages for the newly exposed area. Zoom is
+independent of any preset: **− / +** step the level, **Fit gages** frames every visible station,
+**Recenter** returns to the loaded site **without resetting your zoom**, and the **Filter** box
+matches station names or numbers.
 Click any dot to load that stream. For the current view it then:
 
 - fetches 1–3 years of **daily mean flow** for the six gages nearest the loaded site;
@@ -237,6 +239,7 @@ Additional settings (editable through the UI, stored in the same file):
 | `store_flow_metrics` | remember predicted flow metrics per site (`Remember` in Rainfall → Flow) | `true` |
 | `flow_metrics` | last predicted peak/rise/decay percentages per site number | `{}` |
 | `site_names` | number → station-name map used by the picker | `{}` |
+| `map_zoom` | last map zoom (4–15) | `10` |
 
 **Reset:** use **Settings → Reset settings to defaults…** in the menu bar. It clears recent sites,
 saved metrics and preferences, and keeps the current site loaded.

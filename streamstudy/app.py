@@ -25,13 +25,7 @@ from .settings import (
 from .ui.forecast_view import ForecastView
 from .ui.home_view import HomeView
 from .ui.hydro_view import HydroView
-from .ui.map_view import (
-    MapView,
-    fetch_tiles,
-    tiles_for_bbox,
-    view_bbox,
-    zoom_for_radius,
-)
+from .ui.map_view import MapView, fetch_tiles, tiles_for_bbox, view_bbox
 from .ui.precip_view import PrecipView
 from .ui.response_view import ResponseView
 from .ui.sensors_view import SensorsView
@@ -115,7 +109,7 @@ class StreamStudyApp:
         self.history_loading = False
         self._history_site: str | None = None
         self._history_token = 0
-        self.map_radius = float(self.settings.get("map_radius", 0.5))
+        self.map_zoom = int(self.settings.get("map_zoom", 10))
         self.map_years = int(self.settings.get("map_years", 2))
         self.map_loading = False
         self._map_site: str | None = None
@@ -513,7 +507,7 @@ class StreamStudyApp:
         self.map_view.show_map_loading()
         self._request_map_view(
             (site.latitude, site.longitude),
-            zoom_for_radius(self.map_radius),
+            self.map_zoom,
             rerun_regional=True,
         )
 
@@ -547,6 +541,10 @@ class StreamStudyApp:
         self.map_loading = True
         self._map_center = center
         self._map_zoom = zoom
+        if zoom != self.map_zoom:
+            self.map_zoom = zoom
+            self.settings["map_zoom"] = zoom
+            save_settings(self.settings, self.settings_path)
         width, height = self.map_view.map_size()
         west, south, east, north = view_bbox(center, zoom, width, height)
 
@@ -658,12 +656,38 @@ class StreamStudyApp:
                 tone="muted",
             )
 
-    def set_map_radius(self, radius: float) -> None:
-        self.map_radius = float(radius)
-        self.settings["map_radius"] = self.map_radius
-        save_settings(self.settings, self.settings_path)
-        self._map_site = None
-        self.request_map(force=True)
+    def zoom_map(self, delta: int) -> None:
+        center = self._map_center
+        if center is None and self.bundle is not None:
+            center = (self.bundle.site.latitude, self.bundle.site.longitude)
+        if center is None:
+            return
+        zoom = max(4, min(15, self.map_zoom + int(delta)))
+        if zoom == self.map_zoom:
+            return
+        self._request_map_view(center, zoom, rerun_regional=False)
+
+    def fit_map_to_sites(self, sites) -> None:
+        points = [
+            (site.latitude, site.longitude)
+            for site in (sites or [])
+            if site.latitude is not None and site.longitude is not None
+        ]
+        if not points:
+            return
+        lat_min = min(point[0] for point in points)
+        lat_max = max(point[0] for point in points)
+        lon_min = min(point[1] for point in points)
+        lon_max = max(point[1] for point in points)
+        center = ((lat_min + lat_max) / 2.0, (lon_min + lon_max) / 2.0)
+        width, height = self.map_view.map_size()
+        zoom = 15
+        for candidate in range(15, 3, -1):
+            west, south, east, north = view_bbox(center, candidate, width, height)
+            if south <= lat_min and north >= lat_max and west <= lon_min and east >= lon_max:
+                zoom = candidate
+                break
+        self._request_map_view(center, zoom, rerun_regional=False)
 
     def set_temperature_threshold(self, value: float) -> None:
         self.temperature_threshold = max(0.0, min(40.0, float(value)))
@@ -704,7 +728,7 @@ class StreamStudyApp:
         if self.bundle is None:
             return
         site = self.bundle.site
-        radius = max(0.5, self.map_radius)
+        radius = 0.5
         bbox = (
             site.longitude - radius,
             site.latitude - radius,
@@ -768,7 +792,7 @@ class StreamStudyApp:
         self.store_flow_metrics = bool(DEFAULTS["store_flow_metrics"])
         self.flow_metrics = {}
         self.history_years = int(DEFAULTS["history_years"])
-        self.map_radius = float(DEFAULTS["map_radius"])
+        self.map_zoom = int(DEFAULTS["map_zoom"])
         self.map_years = int(DEFAULTS["map_years"])
         self.days = int(DEFAULTS["days"])
         save_settings(self.settings, self.settings_path)
@@ -778,7 +802,7 @@ class StreamStudyApp:
         if current is not None:
             self.site_var.set(self._site_label(current.number))
         self.map_view.years_var.set(f"{self.map_years} years")
-        self.map_view.radius_var.set(self.map_view._label_for(self.map_radius))
+        self.map_view.zoom_var.set(f"z{self.map_zoom}")
         self.response_view.metrics_var.set(self.store_flow_metrics)
         self.temperature_view.threshold_var.set(f"{self.temperature_threshold:g}")
         if self.bundle is not None:

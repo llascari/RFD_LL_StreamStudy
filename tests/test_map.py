@@ -23,7 +23,7 @@ TINY_PNG = bytes.fromhex(
 
 
 class StubApp:
-    map_radius = 0.5
+    map_zoom = 10
     map_years = 2
 
     def __init__(self) -> None:
@@ -33,8 +33,11 @@ class StubApp:
     def load_site(self, number: str) -> None:
         self.loaded.append(number)
 
-    def set_map_radius(self, radius: float) -> None:  # pragma: no cover
-        self.map_radius = radius
+    def zoom_map(self, delta: int) -> None:  # pragma: no cover
+        self.map_zoom += delta
+
+    def fit_map_to_sites(self, sites) -> None:  # pragma: no cover
+        return None
 
     def set_map_years(self, years: int) -> None:  # pragma: no cover
         self.map_years = years

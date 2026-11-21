@@ -26,16 +26,9 @@ from .widgets import clear_tree, treeview
 TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 ATTRIBUTION = "\u00a9 OpenStreetMap contributors"
 
-ZOOM_BY_RADIUS = {0.25: 11, 0.5: 10, 1.0: 9, 2.0: 8}
-RADII = (0.25, 0.5, 1.0, 2.0)
-
-
 # --------------------------------------------------------------------------- #
 # web-mercator helpers
 # --------------------------------------------------------------------------- #
-def zoom_for_radius(radius: float) -> int:
-    nearest = min(ZOOM_BY_RADIUS, key=lambda value: abs(value - radius))
-    return ZOOM_BY_RADIUS[nearest]
 
 
 def global_pixel(latitude: float, longitude: float, zoom: int) -> tuple[float, float]:
@@ -572,19 +565,26 @@ class MapView(ttk.Frame):
         filter_entry.bind(
             "<KeyRelease>", lambda _event: self.map.set_filter(self.filter_var.get())
         )
-        ttk.Label(controls, text="Radius", style="Muted.TLabel").pack(
-            side="left", padx=(0, 6)
+        ttk.Label(controls, text="Zoom", style="Muted.TLabel").pack(
+            side="left", padx=(0, 4)
         )
-        self.radius_var = tk.StringVar(value=self._radius_label())
-        radius_box = ttk.Combobox(
+        ttk.Button(controls, text="\u2212", width=2, command=self._zoom_out).pack(
+            side="left"
+        )
+        self.zoom_var = tk.StringVar(value=f"z{self.app.map_zoom}")
+        ttk.Label(
             controls,
-            textvariable=self.radius_var,
-            width=10,
-            state="readonly",
-            values=[self._label_for(radius) for radius in RADII],
+            textvariable=self.zoom_var,
+            style="HeaderMuted.TLabel",
+            width=4,
+            anchor="center",
+        ).pack(side="left")
+        ttk.Button(controls, text="+", width=2, command=self._zoom_in).pack(
+            side="left"
         )
-        radius_box.pack(side="left")
-        radius_box.bind("<<ComboboxSelected>>", self._on_radius)
+        ttk.Button(controls, text="Fit gages", command=self._fit_gages).pack(
+            side="left", padx=(6, 4)
+        )
         ttk.Button(controls, text="Recenter", command=self._recenter).pack(
             side="left", padx=(8, 0)
         )
@@ -676,18 +676,14 @@ class MapView(ttk.Frame):
         ).grid(row=5, column=0, sticky="w", pady=(8, 0))
 
     # -- helpers -------------------------------------------------------
-    def _label_for(self, radius: float) -> str:
-        return f"{radius:g}\u00b0"
+    def _zoom_in(self) -> None:
+        self.app.zoom_map(1)
 
-    def _radius_label(self) -> str:
-        return self._label_for(float(self.app.map_radius))
+    def _zoom_out(self) -> None:
+        self.app.zoom_map(-1)
 
-    def _on_radius(self, _event: tk.Event | None = None) -> None:
-        try:
-            radius = float(self.radius_var.get().rstrip("\u00b0"))
-        except ValueError:
-            return
-        self.app.set_map_radius(radius)
+    def _fit_gages(self) -> None:
+        self.app.fit_map_to_sites(self._sites)
 
     def _on_years(self, _event: tk.Event | None = None) -> None:
         try:
@@ -740,6 +736,7 @@ class MapView(ttk.Frame):
         self._sites = list(sites)
         self.map.set_map(center, zoom, sites, tiles, current_id)
         self.map.set_filter(self.filter_var.get())
+        self.zoom_var.set(f"z{zoom}")
         self.caption.configure(
             text=f"USGS {current_id}  \u00b7  {len(sites)} gages in view  \u00b7  zoom {zoom}"
         )

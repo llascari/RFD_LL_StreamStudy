@@ -18,7 +18,7 @@ DEFAULTS = {
     "temperature_threshold_c": 20.0,
     "store_flow_metrics": True,
     "flow_metrics": {},
-    "map_radius": 0.5,
+    "map_zoom": 10,
     "map_years": 2,
     "coco_station": "",
     "state": "NY",
@@ -26,7 +26,6 @@ DEFAULTS = {
 
 ALLOWED_DAYS = (7, 14, 30, 60)
 ALLOWED_HISTORY_YEARS = (2, 3, 5, 10)
-ALLOWED_MAP_RADII = (0.25, 0.5, 1.0, 2.0)
 ALLOWED_MAP_YEARS = (1, 2, 3)
 
 
@@ -73,8 +72,19 @@ def load_settings(path: str | Path | None = None) -> dict:
     )
     if data["history_years"] not in ALLOWED_HISTORY_YEARS:
         data["history_years"] = DEFAULTS["history_years"]
-    if float(data.get("map_radius", 0.5)) not in ALLOWED_MAP_RADII:
-        data["map_radius"] = DEFAULTS["map_radius"]
+    # Migrate the old radius preference to a zoom level once.
+    if "map_zoom" not in data and "map_radius" in data:
+        try:
+            legacy = float(data["map_radius"])
+        except (TypeError, ValueError):
+            legacy = 0.5
+        data["map_zoom"] = {0.25: 11, 0.5: 10, 1.0: 9, 2.0: 8}.get(legacy, 10)
+    data.pop("map_radius", None)
+    try:
+        zoom = int(data.get("map_zoom", 10))
+    except (TypeError, ValueError):
+        zoom = 10
+    data["map_zoom"] = max(4, min(15, zoom))
     if data.get("map_years", 2) not in ALLOWED_MAP_YEARS:
         data["map_years"] = DEFAULTS["map_years"]
     if not isinstance(data["recent_sites"], list):
