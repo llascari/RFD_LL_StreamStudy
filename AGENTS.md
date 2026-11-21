@@ -92,6 +92,11 @@ make test / make gui-test / make run       # same, if you like make
 - **Nearby hub ranking** — `ranking.py` scores candidates on fit r²/storm count, mean peer
   correlation, water-temperature availability and distance; the hub is the best site nearest the
   centroid of the top three. `loader.rank_sites` fetches the history; the Site finder shows it.
+- **Flow metrics** — `response.Prediction` carries `rise_pct_base`, `rise_pct_peak` and
+  `decay_24h_pct`. `ResponseView` shows them in an always-visible strip and a **Metrics…**
+  dialog (also **Settings → Flow metrics…**) that can save them per site
+  (`app.save_flow_metrics` / `clear_flow_metrics`) when **Remember** is enabled; the values
+  live in `settings.flow_metrics[site]`.
 - **Settings reset** — `app.reset_settings()` (menu **Settings → Reset settings to defaults…**)
   restores `settings.DEFAULTS`, keeps only the current site/name, saves, and reloads.
 - **Updates / versioning** — `updates.py` compares a git checkout's `HEAD` with GitHub `main`,

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import tkinter as tk
 from datetime import timedelta
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from ..models import DataBundle, HistoryBundle, utc_now
 from ..response import Prediction, forecast_scenario, predict, recent_baseflow, scale_scenario
 from .charts import ChartCanvas, ChartSeries, ScatterChart
-from .theme import SERIES_COLORS
+from .theme import BG, SERIES_COLORS
 from .widgets import StatCard, clear_tree, treeview
 
 
@@ -25,8 +25,8 @@ class ResponseView(ttk.Frame):
     # -- construction --------------------------------------------------
     def _build(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=3)
-        self.rowconfigure(3, weight=2)
+        self.rowconfigure(3, weight=3)
+        self.rowconfigure(4, weight=2)
 
         header = ttk.Frame(self)
         header.grid(row=0, column=0, sticky="ew")
@@ -75,8 +75,25 @@ class ResponseView(ttk.Frame):
         ):
             card.grid(row=0, column=index, sticky="nsew", padx=(0, 10) if index < 3 else 0)
 
+        metrics = ttk.Frame(self, style="Card.TFrame", padding=(12, 6))
+        metrics.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        metrics.columnconfigure(0, weight=1)
+        self.metrics_text = tk.StringVar(
+            value="Flow metrics: no scenario yet"
+        )
+        ttk.Label(
+            metrics,
+            textvariable=self.metrics_text,
+            style="Card.TLabel",
+            wraplength=760,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Button(metrics, text="Metrics\u2026", command=self.show_metrics_dialog).grid(
+            row=0, column=1, sticky="e"
+        )
+
         body = ttk.Frame(self)
-        body.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
+        body.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
         body.columnconfigure(0, weight=1, uniform="charts")
         body.columnconfigure(1, weight=1, uniform="charts")
         body.rowconfigure(0, weight=1)
@@ -154,7 +171,7 @@ class ResponseView(ttk.Frame):
             },
             height=5,
         )
-        table_frame.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
+        table_frame.grid(row=4, column=0, sticky="nsew", pady=(10, 0))
 
         self.note = ttk.Label(
             self,
@@ -166,7 +183,7 @@ class ResponseView(ttk.Frame):
             wraplength=1000,
             justify="left",
         )
-        self.note.grid(row=4, column=0, sticky="w", pady=(8, 0))
+        self.note.grid(row=5, column=0, sticky="w", pady=(8, 0))
 
     # -- actions -------------------------------------------------------
     def _on_years(self, _event: tk.Event | None = None) -> None:
@@ -333,25 +350,27 @@ class ResponseView(ttk.Frame):
                     f"{similar}"
                 )
             )
-            self.app.save_flow_metrics(
-                bundle.site.number,
-                {
-                    "rain_in": prediction.rain_in,
-                    "peak_cfs": prediction.peak_cfs,
-                    "rise_cfs": prediction.rise_cfs,
-                    "rise_pct_base": prediction.rise_pct_base,
-                    "rise_pct_peak": prediction.rise_pct_peak,
-                    "decay_24h_pct": prediction.decay_24h_pct,
-                    "peak_time": prediction.peak_time.astimezone().isoformat(
-                        timespec="minutes"
-                    ),
-                    "confidence": prediction.confidence,
-                },
+            payload = self._metrics_payload(prediction)
+            self.app.save_flow_metrics(bundle.site.number, payload)
+            saved = (
+                self.app.store_flow_metrics
+                and self.app.flow_metrics.get(bundle.site.number) is not None
+            )
+            self.metrics_text.set(
+                f"Predicted rise +{prediction.rise_cfs:,.0f} cfs  \u00b7  "
+                f"+{prediction.rise_pct_base:.0f}% of baseflow  \u00b7  "
+                f"{prediction.rise_pct_peak:.0f}% of peak  \u00b7  "
+                f"24 h decay {prediction.decay_24h_pct:.0f}% of storm flow"
+                + ("  \u00b7  saved" if saved else "  \u00b7  not saved")
             )
         else:
             title = "Response outlook"
             self.outlook.configure(
                 text="No rain in the scenario, so no rise is predicted."
+            )
+            self.metrics_text.set(
+                "No rain scenario \u2014 set a scenario above or wait for forecast rain "
+                "to compute flow metrics."
             )
 
         self.prediction_chart.set_series(
@@ -398,4 +417,134 @@ class ResponseView(ttk.Frame):
         self.prediction_chart.set_series([], empty_text=message)
         self.outlook.configure(text="")
         self.scenario_source.configure(text="")
+        self.metrics_text.set(message)
         clear_tree(self.table)
+
+    # -- metrics -------------------------------------------------------
+    @staticmethod
+    def _metrics_payload(prediction: Prediction) -> dict:
+        return {
+            "rain_in": prediction.rain_in,
+            "peak_cfs": prediction.peak_cfs,
+            "rise_cfs": prediction.rise_cfs,
+            "rise_pct_base": prediction.rise_pct_base,
+            "rise_pct_peak": prediction.rise_pct_peak,
+            "decay_24h_pct": prediction.decay_24h_pct,
+            "peak_time": prediction.peak_time.astimezone().isoformat(timespec="minutes"),
+            "confidence": prediction.confidence,
+        }
+
+    def show_metrics_dialog(self) -> None:
+        bundle = self._bundle
+        root = self.winfo_toplevel()
+        if bundle is None:
+            messagebox.showinfo("Flow metrics", "Load a site first.", parent=root)
+            return
+        site = bundle.site
+        prediction = self._prediction
+
+        top = tk.Toplevel(root)
+        top.title("Flow metrics")
+        top.configure(bg=BG)
+        top.geometry("540x470")
+        top.transient(root)
+
+        ttk.Label(
+            top, text=f"Flow metrics \u2014 USGS {site.number}", style="Heading.TLabel"
+        ).pack(anchor="w", padx=14, pady=(12, 6))
+
+        if prediction is not None:
+            computed = (
+                f"Predicted peak {prediction.peak_cfs:,.0f} cfs "
+                f"(rise +{prediction.rise_cfs:,.0f})\n"
+                f"Rise vs baseflow: +{prediction.rise_pct_base:.0f}%\n"
+                f"Rise vs peak: {prediction.rise_pct_peak:.0f}%\n"
+                f"24 h decay vs storm flow: {prediction.decay_24h_pct:.0f}%\n"
+                f"Peak time {prediction.peak_time.astimezone():%b %d %H:%M} "
+                f"\u00b7 confidence {prediction.confidence}"
+            )
+        else:
+            computed = (
+                "No rain scenario yet.\nSet a scenario in Rainfall \u2192 Flow, or wait "
+                "for forecast rain, then reopen this dialog."
+            )
+        ttk.Label(top, text=computed, style="Muted.TLabel", justify="left").pack(
+            anchor="w", padx=14
+        )
+
+        threshold_row = ttk.Frame(top)
+        threshold_row.pack(fill="x", padx=14, pady=(12, 4))
+        ttk.Label(threshold_row, text="Temperature threshold").pack(side="left")
+        threshold_var = tk.StringVar(value=f"{self.app.temperature_threshold:g}")
+        ttk.Spinbox(
+            threshold_row,
+            from_=0.0,
+            to=40.0,
+            increment=0.5,
+            width=6,
+            justify="right",
+            textvariable=threshold_var,
+        ).pack(side="left", padx=6)
+        ttk.Label(threshold_row, text="\u00b0C").pack(side="left")
+
+        def apply_threshold() -> None:
+            try:
+                value = float(threshold_var.get())
+            except ValueError:
+                return
+            self.app.set_temperature_threshold(value)
+
+        ttk.Button(threshold_row, text="Apply", command=apply_threshold).pack(
+            side="left", padx=6
+        )
+
+        remember_var = tk.BooleanVar(value=self.app.store_flow_metrics)
+        ttk.Checkbutton(
+            top,
+            text="Remember these metrics for this site",
+            variable=remember_var,
+            command=lambda: self.app.set_store_flow_metrics(remember_var.get()),
+        ).pack(anchor="w", padx=14, pady=(2, 8))
+
+        stored_var = tk.StringVar()
+
+        def stored_text() -> str:
+            data = self.app.flow_metrics.get(site.number)
+            if not data:
+                return "Stored for this site: none"
+            return (
+                "Stored for this site:\n"
+                f"  rise vs baseflow: {data.get('rise_pct_base', '\u2014')}%\n"
+                f"  rise vs peak: {data.get('rise_pct_peak', '\u2014')}%\n"
+                f"  24 h decay: {data.get('decay_24h_pct', '\u2014')}% of storm flow\n"
+                f"  peak {data.get('peak_cfs', '\u2014')} cfs \u00b7 rain "
+                f"{data.get('rain_in', '\u2014')} in"
+            )
+
+        stored_var.set(stored_text())
+        ttk.Label(
+            top, textvariable=stored_var, style="Muted.TLabel", justify="left"
+        ).pack(anchor="w", padx=14, pady=(4, 6))
+
+        actions = ttk.Frame(top)
+        actions.pack(fill="x", padx=14, pady=(8, 12))
+
+        def save_now() -> None:
+            if prediction is None:
+                return
+            self.app.save_flow_metrics(site.number, self._metrics_payload(prediction))
+            stored_var.set(stored_text())
+            self.metrics_text.set(self.metrics_text.get().split("  \u00b7  saved")[0])
+
+        def clear_saved() -> None:
+            self.app.clear_flow_metrics(site.number)
+            stored_var.set(stored_text())
+
+        save_button = ttk.Button(actions, text="Save computed metrics", command=save_now)
+        save_button.pack(side="left")
+        if prediction is None:
+            save_button.state(["disabled"])
+        ttk.Button(actions, text="Clear stored", command=clear_saved).pack(
+            side="left", padx=8
+        )
+        ttk.Button(actions, text="Close", command=top.destroy).pack(side="right")

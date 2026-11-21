@@ -153,6 +153,10 @@ class StreamStudyApp:
         menubar = tk.Menu(self.root)
         settings_menu = tk.Menu(menubar, tearoff=False)
         settings_menu.add_command(
+            label="Flow metrics\u2026", command=lambda: self.response_view.show_metrics_dialog()
+        )
+        settings_menu.add_separator()
+        settings_menu.add_command(
             label="Reset settings to defaults\u2026", command=self.reset_settings
         )
         menubar.add_cascade(label="Settings", menu=settings_menu)
@@ -730,6 +734,13 @@ class StreamStudyApp:
     def set_store_flow_metrics(self, enabled: bool) -> None:
         self.store_flow_metrics = bool(enabled)
         self.settings["store_flow_metrics"] = self.store_flow_metrics
+        save_settings(self.settings, self.settings_path)
+
+    def clear_flow_metrics(self, site_number: str) -> None:
+        if site_number not in self.flow_metrics:
+            return
+        del self.flow_metrics[site_number]
+        self.settings["flow_metrics"] = dict(self.flow_metrics)
         save_settings(self.settings, self.settings_path)
 
     def save_flow_metrics(self, site_number: str, metrics: dict) -> None:

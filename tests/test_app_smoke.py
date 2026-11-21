@@ -220,6 +220,14 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(len(self.app.response_view.table.get_children()), 5)
         self.assertGreaterEqual(len(self.app.response_view.prediction_chart._all_series), 4)
         self.assertIn("peak", self.app.response_view.outlook.cget("text"))
+        metrics = self.app.response_view.metrics_text.get()
+        self.assertIn("% of baseflow", metrics)
+        self.assertIn("% of peak", metrics)
+        self.assertIn("decay", metrics)
+        self.assertIn("0423205010", self.app.flow_metrics)
+        stored = self.app.flow_metrics["0423205010"]
+        self.assertIn("rise_pct_base", stored)
+        self.assertIn("decay_24h_pct", stored)
 
     def test_temperature_view_renders(self):
         from datetime import date, timedelta

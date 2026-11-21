@@ -54,7 +54,8 @@ feeds them**.
 - **Rainfall → Flow** — 2–10 years of daily flow and rain become a fitted rainfall-runoff
   response: storms detected, response rate (cfs per inch), time to peak, recession half-life,
   a rainfall-vs-rise scatter with the storm examples behind the fit, and a forecast-driven
-  predicted hydrograph with a 10–90 % band and the most similar past storms
+  predicted hydrograph with a 10–90 % band, the most similar past storms, and an always-visible
+  **metrics strip** (rise as % of baseflow/peak, 24 h decay as % of storm flow) with a **Metrics…** dialog
 - **Map & Correlation** — a navigable OpenStreetMap view: **drag to pan, scroll to zoom**, and
   **automatic reload on window resize**; **Recenter** keeps your zoom, **Fit gages** auto-frames
   the visible stations, filter gages by name, and click any dot to load it.
@@ -240,7 +241,7 @@ Additional settings (editable through the UI, stored in the same file):
 | --- | --- | --- |
 | `temperature_threshold_c` | duration-above threshold, editable on the Temperature tab | `20` |
 | `store_flow_metrics` | remember predicted flow metrics per site (`Remember` in Rainfall → Flow) | `true` |
-| `flow_metrics` | last predicted peak/rise/decay percentages per site number | `{}` |
+| `flow_metrics` | last predicted peak/rise/decay percentages per site number (view/save via **Rainfall → Flow → Metrics…** or **Settings → Flow metrics…**) | `{}` |
 | `site_names` | number → station-name map used by the picker | `{}` |
 | `map_zoom` | last map zoom (4–15) | `10` |
 
