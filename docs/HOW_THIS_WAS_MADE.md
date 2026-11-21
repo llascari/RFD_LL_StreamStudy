@@ -40,6 +40,7 @@ polished marketing: the dead ends are included.
 | 12 | “A whole Temperature tab (water, air, sunshine correlation); duration above a settable temperature for 1 d/1 w/1 m/1 y; store more metrics; find a high-value nearby gage; reset settings.” | **Temperature** tab, `temperature_stats.py`, prediction percentages (% of baseflow / peak / storm flow), `ranking.py` hub suggestion, **Settings → Reset**. | `af146b3` |
 | 13 | “Update the screenshots/docs; they look stale.” | Regenerated every image from the running app, fixed the view list and quick start, moved the Site finder status to its own row. | `23826b6` |
 | 14 | “Map scrolling/dragging and auto-recentering seem tied to the radius pulldown.” | Removed the radius presets: free zoom level, `−/+`, **Fit gages**, and Recenter that keeps your zoom; persists `map_zoom`. | `3f6d2f8` |
+| 15 | “Map navigation seems broken — it snaps back. Is that load lag? Maybe keep a larger map available for panning.” | Panning moves the view immediately (optimistic), tiles are cached by zoom and prefetched 35 % beyond the viewport, and a failed/slow refresh no longer yanks the map back. Wheel zoom applies when the new tiles arrive instead of reverting. | `4f2ca9f` |
 
 The first two commits are a different app. That is fine: the prompt changed the domain, and the
 right move was to pivot rather than bolt features onto the wrong program.
@@ -72,6 +73,7 @@ right move was to pivot rather than bolt features onto the wrong program.
 | Depth sensor “looked broken” | real sensor stuck at a constant | flag constant series as suspicious instead of hiding them |
 | Prediction chart disappeared | canvas under its minimum height after layout changes | gave the chart a stable height and fixed the grid weights |
 | Map “tied to the radius dropdown” | zoom was derived from a preset radius | free zoom level, Fit gages, Recenter preserving zoom |
+| Map “snapped back” after dragging | the canvas waited for the network, then redrew the old centre | optimistic pan, same-zoom tile cache, 35 % prefetch margin |
 | Fixture refresh broke tests | assertions pinned to one recorded value | assert structure/ranges/ordering instead of magic numbers |
 
 ## A prompt recipe you can copy
