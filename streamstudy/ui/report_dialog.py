@@ -45,6 +45,7 @@ class ReportDialog(tk.Toplevel):
         self._started = time.monotonic()
         self._poll_id: str | None = None
         self._output: Path | None = None
+        self._last_message = "Ready"
 
         site = app.bundle.site if app.bundle is not None else None
         if site is None:
@@ -281,12 +282,15 @@ class ReportDialog(tk.Toplevel):
             )
             return
         include_region = bool(self.region_var.get())
+        if abs(threshold - self.app.temperature_threshold) > 1e-9:
+            self.app.set_temperature_threshold(threshold)
         self._output = path
         self._cancel.clear()
         self._running = True
         self._started = self._last_activity = time.monotonic()
         self.progress.configure(mode="determinate", value=0)
-        self.progress_var.set("Starting\u2026")
+        self._last_message = "Starting\u2026"
+        self.progress_var.set(self._last_message)
         self.generate_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         self.open_button.configure(state="disabled")
@@ -344,10 +348,12 @@ class ReportDialog(tk.Toplevel):
                     self._last_activity = time.monotonic()
                     if kind == "progress":
                         self.progress.configure(value=100.0 * float(value))
-                        self.progress_var.set(str(extra))
+                        self._last_message = str(extra)
+                        self.progress_var.set(self._last_message)
                     elif kind == "writing":
                         self.progress.configure(value=100)
-                        self.progress_var.set("Writing the PDF\u2026")
+                        self._last_message = "Writing the PDF\u2026"
+                        self.progress_var.set(self._last_message)
                     elif kind == "done":
                         self._finish_done(value, extra)
                     elif kind == "cancelled":
@@ -364,12 +370,12 @@ class ReportDialog(tk.Toplevel):
             elapsed = now - self._started
             if quiet > 20:
                 self.progress_var.set(
-                    f"{self.progress_var.get()}  \u2014  no new data for {quiet:.0f} s; "
+                    f"{self._last_message}  \u2014  no new data for {quiet:.0f} s; "
                     f"elapsed {elapsed:.0f} s. Network sources can be slow."
                 )
             elif quiet > 8:
                 self.progress_var.set(
-                    f"{self.progress_var.get()}  (still working, {elapsed:.0f} s elapsed)"
+                    f"{self._last_message}  (still working, {elapsed:.0f} s elapsed)"
                 )
             self._poll_id = self.after(250, self._poll)
         else:
@@ -383,6 +389,7 @@ class ReportDialog(tk.Toplevel):
         text = f"Report written to {path}  |  {loaded} site(s)"
         if failures:
             text += f"  |  {failures} site(s) skipped (see report)"
+        self._last_message = text
         self.progress_var.set(text)
         self.open_button.configure(state="normal")
         self.cancel_button.configure(state="disabled")
