@@ -10,6 +10,17 @@ import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
 
+from .analysis_window import (
+    CUSTOM_LABEL,
+    LABEL_TO_KEY,
+    PRESET_LABELS,
+    TimeWindow,
+    key_for_window,
+    parse_custom,
+    preset_window,
+    window_from_settings,
+    window_to_settings,
+)
 from .credits import ABOUT_TEXT
 from .http import HttpClient
 from .loader import BundleLoader, LoadOptions
@@ -115,7 +126,7 @@ class StreamStudyApp:
         self._update_checking = False
         self.days = int(self.settings.get("days", 14))
         self.bundle: DataBundle | None = None
-        self.history_years = int(self.settings.get("history_years", 3))
+        self.analysis_window = window_from_settings(self.settings.get("analysis_window"))
         self.history_loading = False
         self._history_site: str | None = None
         self._history_token = 0
@@ -351,6 +362,7 @@ class StreamStudyApp:
         )
         options = LoadOptions(
             days=self.days,
+            analysis_window=self.analysis_window,
             coco_station=(self.settings.get("coco_station") or None),
         )
 
@@ -461,11 +473,11 @@ class StreamStudyApp:
             return
         self.load_history()
 
-    def load_history(self, years: int | None = None) -> None:
+    def load_history(self, window: TimeWindow | None = None) -> None:
         if self.bundle is None:
             return
-        if years is not None:
-            self.history_years = max(1, min(int(years), 15))
+        window = (window or self.analysis_window).clipped()
+        self.analysis_window = window
         site = self.bundle.site
         self._history_token += 1
         token = self._history_token
@@ -473,10 +485,9 @@ class StreamStudyApp:
         self._history_site = None
         self.response_view.render(self.bundle)
         coco = self.bundle.coco_station.identifier if self.bundle.coco_station else None
-        span = self.history_years
 
         def work():
-            return self.loader.load_history(site, years=span, coco_station=coco)
+            return self.loader.load_history(site, window=window, coco_station=coco)
 
         self.run_async(
             work, lambda result, error: self._finish_history(token, result, error)
@@ -492,22 +503,25 @@ class StreamStudyApp:
         if self.bundle is None:
             return
         self.bundle.history = result
+        if result.water_temp_daily:
+            self.bundle.water_temp_daily = dict(result.water_temp_daily)
         self._history_site = self.bundle.site.number
-        self.settings["history_years"] = self.history_years
         save_settings(self.settings, self.settings_path)
         self.response_view.render(self.bundle)
+        self.temperature_view.render(self.bundle)
         fit = result.fit
         if self.notebook.select() != str(self.map_view):
             if fit is not None:
                 self.set_status(
                     f"Rainfall response: {fit.events} storms \u00b7 {fit.slope:,.0f} cfs/in "
-                    f"\u00b7 lag {fit.lag_p50_hours:.0f} h \u00b7 {result.precip_source}",
+                    f"\u00b7 lag {fit.lag_p50_hours:.0f} h \u00b7 {result.precip_source} "
+                    f"\u00b7 {result.start} \u2192 {result.end}",
                     tone="muted",
                 )
             else:
                 self.set_status(
                     f"Rainfall response: only {len(result.events)} usable storms in "
-                    f"{self.history_years} years \u2014 try a longer history.",
+                    f"{result.start} \u2192 {result.end} \u2014 try a longer window.",
                     tone="warn",
                 )
         if self._map_sites and not self._regional_gauge:
@@ -723,6 +737,96 @@ class StreamStudyApp:
                 zoom = candidate
                 break
         self._request_map_view(center, zoom, rerun_regional=False)
+
+    def set_analysis_window(self, window: TimeWindow) -> None:
+        window = window.clipped()
+        self.analysis_window = window
+        self.settings["analysis_window"] = window_to_settings(window)
+        save_settings(self.settings, self.settings_path)
+        if self.bundle is not None:
+            self.temperature_view.render(self.bundle)
+            self.load_history(window=window)
+        self.set_status(
+            f"Analysis window: {window.label} ({window.range_label})", tone="muted"
+        )
+
+    def show_window_dialog(self) -> None:
+        current = self.analysis_window
+        top = tk.Toplevel(self.root)
+        top.title("Analysis window")
+        top.configure(bg=BG)
+        top.transient(self.root)
+        top.geometry("430x300")
+
+        ttk.Label(top, text="Analysis window", style="Heading.TLabel").pack(
+            anchor="w", padx=16, pady=(14, 8)
+        )
+        ttk.Label(
+            top,
+            text="Used by the rainfall \u2192 flow model and the temperature statistics.",
+            style="Muted.TLabel",
+            wraplength=390,
+            justify="left",
+        ).pack(anchor="w", padx=16)
+
+        key = key_for_window(current)
+        preset_var = tk.StringVar()
+        preset_var.set(
+            next(
+                (label for label, k in LABEL_TO_KEY.items() if k == key),
+                CUSTOM_LABEL,
+            )
+        )
+        row = ttk.Frame(top)
+        row.pack(fill="x", padx=16, pady=(12, 6))
+        ttk.Label(row, text="Preset").pack(side="left")
+        combo = ttk.Combobox(
+            row,
+            textvariable=preset_var,
+            state="readonly",
+            values=PRESET_LABELS + [CUSTOM_LABEL],
+            width=22,
+        )
+        combo.pack(side="left", padx=8)
+
+        dates = ttk.Frame(top)
+        dates.pack(fill="x", padx=16, pady=(4, 6))
+        ttk.Label(dates, text="Start").pack(side="left")
+        start_var = tk.StringVar(value=current.start.isoformat())
+        ttk.Entry(dates, textvariable=start_var, width=12).pack(side="left", padx=(6, 12))
+        ttk.Label(dates, text="End").pack(side="left")
+        end_var = tk.StringVar(value=current.end.isoformat())
+        ttk.Entry(dates, textvariable=end_var, width=12).pack(side="left", padx=6)
+
+        def sync_dates(_event=None) -> None:
+            mode = LABEL_TO_KEY.get(preset_var.get())
+            if mode:
+                window = preset_window(mode)
+                start_var.set(window.start.isoformat())
+                end_var.set(window.end.isoformat())
+
+        combo.bind("<<ComboboxSelected>>", sync_dates)
+
+        def apply() -> None:
+            mode = LABEL_TO_KEY.get(preset_var.get())
+            try:
+                window = (
+                    preset_window(mode)
+                    if mode
+                    else parse_custom(start_var.get(), end_var.get())
+                )
+            except ValueError as exc:
+                messagebox.showwarning("Analysis window", str(exc), parent=top)
+                return
+            top.destroy()
+            self.set_analysis_window(window)
+
+        actions = ttk.Frame(top)
+        actions.pack(fill="x", padx=16, pady=(10, 12))
+        ttk.Button(actions, text="Apply", style="Accent.TButton", command=apply).pack(
+            side="left"
+        )
+        ttk.Button(actions, text="Cancel", command=top.destroy).pack(side="left", padx=8)
 
     def set_temperature_threshold(self, value: float) -> None:
         self.temperature_threshold = max(0.0, min(40.0, float(value)))
@@ -940,7 +1044,8 @@ class StreamStudyApp:
         self.temperature_threshold = float(DEFAULTS["temperature_threshold_c"])
         self.store_flow_metrics = bool(DEFAULTS["store_flow_metrics"])
         self.flow_metrics = {}
-        self.history_years = int(DEFAULTS["history_years"])
+        self.analysis_window = preset_window("1y")
+        self.settings["analysis_window"] = window_to_settings(self.analysis_window)
         self.map_zoom = int(DEFAULTS["map_zoom"])
         self.map_years = int(DEFAULTS["map_years"])
         self.days = int(DEFAULTS["days"])

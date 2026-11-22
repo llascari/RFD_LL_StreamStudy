@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 from .analysis import mm_to_inches
+from .analysis_window import TimeWindow, last_years_window, preset_window
 from .correlation import RegionalAnalysis, build_regional
 from .ranking import Ranking, build_ranking
 from .models import DataBundle, GaugeStation, HistoryBundle, Site, utc_now
@@ -20,6 +21,7 @@ from .providers.usgs import UsgsProvider
 @dataclass(frozen=True)
 class LoadOptions:
     days: int = 14
+    analysis_window: TimeWindow | None = None
     coco_station: str | None = None
     nws_station: str | None = None
     include_forecast: bool = True
@@ -150,11 +152,12 @@ class BundleLoader:
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Open-Meteo weather: {exc}")
 
-        # -- A year of USGS daily water temperature for duration statistics
+        # -- USGS daily water temperature for the selected analysis window
         try:
-            end = date.today()
-            start = end - timedelta(days=365)
-            daily = self.usgs.fetch_daily(site.number, start, end, ("00010",))
+            window = (options.analysis_window or preset_window("1y")).clipped()
+            daily = self.usgs.fetch_daily(
+                site.number, window.start, window.end, ("00010",)
+            )
             bundle.water_temp_daily = daily.get("00010", {})
         except Exception as exc:  # noqa: BLE001
             errors.append(f"USGS water temperature: {exc}")
@@ -194,22 +197,27 @@ class BundleLoader:
         self,
         site: Site,
         *,
-        years: int = 3,
+        window: TimeWindow | None = None,
+        years: int | None = None,
         coco_station: str | None = None,
     ) -> HistoryBundle:
-        """Daily flow + precipitation over several years, with a fitted response."""
-        years = max(1, min(int(years), 15))
-        end = date.today() - timedelta(days=1)
-        try:
-            start = end.replace(year=end.year - years)
-        except ValueError:  # 29 February -> use the 28th
-            start = end.replace(year=end.year - years, day=28)
+        """Daily flow + precipitation for a window, with a fitted response."""
+        if window is None:
+            window = (
+                last_years_window(years) if years is not None else preset_window("1y")
+            )
+        window = window.clipped()
+        start, end = window.start, window.end
 
         errors: list[str] = []
         flow: dict[date, float] = {}
+        water_temp: dict[date, float] = {}
         try:
-            daily = self.usgs.fetch_daily(site.number, start, end, ("00060",))
+            daily = self.usgs.fetch_daily(
+                site.number, start, end, ("00060", "00010")
+            )
             flow = daily.get("00060", {})
+            water_temp = daily.get("00010", {})
         except Exception as exc:  # noqa: BLE001 - one source failing is survivable
             errors.append(f"USGS daily values: {exc}")
 
@@ -256,6 +264,7 @@ class BundleLoader:
             events=tuple(events),
             fit=fit,
             precip=tuple(sorted(precip.items())),
+            water_temp_daily=water_temp,
             errors=errors,
         )
 

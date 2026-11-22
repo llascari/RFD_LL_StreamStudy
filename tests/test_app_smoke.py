@@ -213,7 +213,6 @@ class AppSmokeTest(unittest.TestCase):
             fit=fit,
         )
         bundle.nws_qpf = ((utc_now() + timedelta(hours=4), 0.8),)
-        self.app.history_years = 3
         self.app.response_view.render(bundle)
 
         self.assertEqual(self.app.response_view.response_card.value_var.get(), "120")
@@ -263,7 +262,7 @@ class AppSmokeTest(unittest.TestCase):
         self.assertNotEqual(view.water_card.value_var.get(), "\u2014")
         self.assertNotEqual(view.air_card.value_var.get(), "\u2014")
         self.assertGreaterEqual(len(view.temp_chart._all_series), 2)
-        self.assertIn("%", view.window_vars["24 h"].get())
+        self.assertIn("%", view.stat_vars["above"].get())
         self.assertIn("r ", view.compare_var.get())
 
     def test_reset_settings(self):
@@ -300,6 +299,16 @@ class AppSmokeTest(unittest.TestCase):
         values = self.app.sites_view.tree.item(rows[0], "values")
         self.assertEqual(values[-1], "6.4")
         self.assertIn("Suggested:", self.app.sites_view.status_var.get())
+
+    def test_analysis_window_setting(self):
+        from streamstudy.analysis_window import preset_window
+        from streamstudy.settings import load_settings
+
+        self.app.set_analysis_window(preset_window("30d"))
+        self.assertEqual(self.app.analysis_window.days, 30)
+        reloaded = load_settings(str(self.app.settings_path))
+        self.assertEqual(reloaded["analysis_window"]["mode"], "30d")
+        self.assertIn("30 days", self.app.response_view.window_var.get())
 
     def test_temperature_threshold_persists(self):
         self.app.set_temperature_threshold(18.5)

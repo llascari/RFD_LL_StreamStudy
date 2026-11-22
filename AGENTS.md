@@ -42,7 +42,8 @@ streamstudy/
                     (pure parse_* functions + thin fetch)
   response.py       baseflow, storm events, response fit, scenario → predicted hydrograph
   correlation.py    lagged log-flow Pearson, flow↔flow and flow↔rain
-  temperature_stats.py  hours above a threshold, clear days
+  analysis_window.py  shared preset/custom analysis window
+  temperature_stats.py  hours above a threshold in a window, clear days
   ranking.py        nearby-gage scoring and hub suggestion
   updates.py        GitHub commit / VERSION update check
   analysis.py       daily aggregation, unit conversion, stats, nice axis steps, pearson
@@ -87,11 +88,17 @@ make test / make gui-test / make run       # same, if you like make
   frames the visible gages, and `recenter_map` keeps the current zoom. Tiles are fetched in the
   worker (`fetch_tiles`) and decoded on the main thread. Clicking calls `app.load_site`.
 - **Temperature** — `temperature_stats.py` integrates hours above a threshold from IV samples
-  (gap capped at 2 h) and uses daily means for 30 d/1 y; `ui/temperature_view.py` also correlates
+  (gap capped at 2 h) inside the shared analysis window and uses daily means for long windows;
+  `ui/temperature_view.py` also correlates
   daily water temperature with Open-Meteo air temperature and sunshine (linear, ±2 d).
 - **Nearby hub ranking** — `ranking.py` scores candidates on fit r²/storm count, mean peer
   correlation, water-temperature availability and distance; the hub is the best site nearest the
   centroid of the top three. `loader.rank_sites` fetches the history; the Site finder shows it.
+- **Analysis window** — `analysis_window.py` holds `TimeWindow` (presets 1d/7d/30d/90d/1y/2y/5y
+  plus custom dates). `app.analysis_window` is saved in `settings.analysis_window`, passed to
+  `LoadOptions.analysis_window` for water temperature, and to `loader.load_history(window=…)` for
+  the flow fit; ResponseView and TemperatureView share it. Dates are local; IV is only used for
+  short windows, daily means for long ones.
 - **Flow metrics** — `response.Prediction` carries `rise_pct_base`, `rise_pct_peak` and
   `decay_24h_pct`. `ResponseView` shows them in an always-visible strip and a **Metrics…**
   dialog (also **Settings → Flow metrics…**) that can save them per site
@@ -138,6 +145,9 @@ make test / make gui-test / make run       # same, if you like make
   confidence/units differ from IV, so keep the two resolutions separate in stats.
 - **GitHub update check** — unauthenticated API is 60 requests/hour; failures are silent for the
   automatic check and shown on manual checks. Never let an update check block the UI or tests.
+- **Analysis windows** — window dates are local dates; daily means make a day either fully above or
+  below for long windows, while short windows integrate IV samples with a 2 h gap cap. Clamp
+  custom end dates to today and validate `YYYY-MM-DD` early.
 
 ## Testing conventions
 

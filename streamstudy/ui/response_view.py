@@ -6,6 +6,7 @@ import tkinter as tk
 from datetime import timedelta
 from tkinter import messagebox, ttk
 
+from ..analysis_window import CUSTOM_LABEL, LABEL_TO_KEY, PRESET_LABELS, key_for_window, preset_window
 from ..models import DataBundle, HistoryBundle, utc_now
 from ..response import Prediction, forecast_scenario, predict, recent_baseflow, scale_scenario
 from .charts import ChartCanvas, ChartSeries, ScatterChart
@@ -45,20 +46,20 @@ class ResponseView(ttk.Frame):
 
         controls = ttk.Frame(header)
         controls.grid(row=0, column=1, rowspan=2, sticky="e")
-        ttk.Label(controls, text="History", style="Muted.TLabel").pack(
+        ttk.Label(controls, text="Window", style="Muted.TLabel").pack(
             side="left", padx=(0, 6)
         )
-        self.years_var = tk.StringVar(value=f"{self.app.history_years} years")
-        years_box = ttk.Combobox(
+        self.window_var = tk.StringVar(value=self.app.analysis_window.label)
+        window_box = ttk.Combobox(
             controls,
-            textvariable=self.years_var,
-            width=9,
+            textvariable=self.window_var,
+            width=18,
             state="readonly",
-            values=["2 years", "3 years", "5 years", "10 years"],
+            values=PRESET_LABELS + [CUSTOM_LABEL],
         )
-        years_box.pack(side="left")
-        years_box.bind("<<ComboboxSelected>>", self._on_years)
-        ttk.Button(controls, text="Reload history", command=self._reload).pack(
+        window_box.pack(side="left")
+        window_box.bind("<<ComboboxSelected>>", self._on_window)
+        ttk.Button(controls, text="Reload", command=self._reload).pack(
             side="left", padx=(8, 0)
         )
 
@@ -186,12 +187,22 @@ class ResponseView(ttk.Frame):
         self.note.grid(row=5, column=0, sticky="w", pady=(8, 0))
 
     # -- actions -------------------------------------------------------
-    def _on_years(self, _event: tk.Event | None = None) -> None:
-        try:
-            years = int(self.years_var.get().split()[0])
-        except (ValueError, IndexError):
+    def _on_window(self, _event: tk.Event | None = None) -> None:
+        label = self.window_var.get()
+        if label == CUSTOM_LABEL:
+            self.app.show_window_dialog()
             return
-        self.app.load_history(years=years)
+        key = LABEL_TO_KEY.get(label)
+        if key is not None:
+            self.app.set_analysis_window(preset_window(key))
+
+    def _sync_window_combo(self) -> None:
+        key = key_for_window(self.app.analysis_window)
+        label = next(
+            (label for label, candidate in LABEL_TO_KEY.items() if candidate == key),
+            CUSTOM_LABEL,
+        )
+        self.window_var.set(label)
 
     def _reload(self) -> None:
         self.app.load_history()
@@ -236,12 +247,13 @@ class ResponseView(ttk.Frame):
         assert fit is not None
         self.caption.configure(
             text=(
-                f"{bundle.site.name}  \u00b7  {history.start:%b %Y}\u2013{history.end:%b %Y}"
+                f"{bundle.site.name}  \u00b7  {history.start.isoformat()} \u2192 "
+                f"{history.end.isoformat()} ({history.start:%b %Y}\u2013{history.end:%b %Y})"
                 f"  \u00b7  rain: {history.precip_source}"
                 f"  \u00b7  {history.flow_days:,} daily flow values"
             )
         )
-        self.years_var.set(f"{self.app.history_years} years")
+        self._sync_window_combo()
 
         self.response_card.set(
             f"{fit.slope:,.0f}",
@@ -402,10 +414,11 @@ class ResponseView(ttk.Frame):
         caption = "Rainfall \u2192 Flow"
         if history is not None:
             caption = (
-                f"{history.start:%b %Y}\u2013{history.end:%b %Y}  \u00b7  "
+                f"{history.start.isoformat()} \u2192 {history.end.isoformat()}  \u00b7  "
                 f"rain: {history.precip_source}  \u00b7  {history.flow_days:,} daily flow values"
             )
         self.caption.configure(text=caption)
+        self._sync_window_combo()
         for card in (
             self.response_card,
             self.lag_card,
@@ -421,9 +434,8 @@ class ResponseView(ttk.Frame):
         clear_tree(self.table)
 
     # -- metrics -------------------------------------------------------
-    @staticmethod
-    def _metrics_payload(prediction: Prediction) -> dict:
-        return {
+    def _metrics_payload(self, prediction: Prediction) -> dict:
+        payload = {
             "rain_in": prediction.rain_in,
             "peak_cfs": prediction.peak_cfs,
             "rise_cfs": prediction.rise_cfs,
@@ -433,6 +445,11 @@ class ResponseView(ttk.Frame):
             "peak_time": prediction.peak_time.astimezone().isoformat(timespec="minutes"),
             "confidence": prediction.confidence,
         }
+        history = self._bundle.history if self._bundle is not None else None
+        if history is not None:
+            payload["window_start"] = history.start.isoformat()
+            payload["window_end"] = history.end.isoformat()
+        return payload
 
     def show_metrics_dialog(self) -> None:
         bundle = self._bundle

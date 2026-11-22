@@ -13,9 +13,9 @@ DEFAULTS = {
     "last_site": DEFAULT_SITE,
     "recent_sites": [DEFAULT_SITE],
     "days": 14,
-    "history_years": 3,
     "site_names": {},
     "temperature_threshold_c": 20.0,
+    "analysis_window": {"mode": "1y"},
     "store_flow_metrics": True,
     "flow_metrics": {},
     "map_zoom": 10,
@@ -25,7 +25,6 @@ DEFAULTS = {
 }
 
 ALLOWED_DAYS = (7, 14, 30, 60)
-ALLOWED_HISTORY_YEARS = (2, 3, 5, 10)
 ALLOWED_MAP_YEARS = (1, 2, 3)
 
 
@@ -64,14 +63,17 @@ def load_settings(path: str | Path | None = None) -> dict:
         threshold = 20.0
     data["temperature_threshold_c"] = max(0.0, min(40.0, threshold))
     data["store_flow_metrics"] = bool(data.get("store_flow_metrics", True))
+    window = data.get("analysis_window")
+    if not isinstance(window, dict) or window.get("mode") not in (
+        "1d", "7d", "30d", "90d", "1y", "2y", "5y", "custom"
+    ):
+        data["analysis_window"] = dict(DEFAULTS["analysis_window"])
     metrics = data.get("flow_metrics")
     data["flow_metrics"] = (
         {str(site): value for site, value in metrics.items() if isinstance(value, dict)}
         if isinstance(metrics, dict)
         else {}
     )
-    if data["history_years"] not in ALLOWED_HISTORY_YEARS:
-        data["history_years"] = DEFAULTS["history_years"]
     # Migrate the old radius preference to a zoom level once.
     if "map_zoom" not in data and "map_radius" in data:
         try:

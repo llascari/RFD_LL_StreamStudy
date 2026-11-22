@@ -170,6 +170,7 @@ class HistoryBundle:
     events: tuple[FlowEvent, ...] = ()
     fit: ResponseFit | None = None
     precip: tuple[tuple[date, float], ...] = ()
+    water_temp_daily: dict[date, float] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
 

@@ -9,7 +9,7 @@ from tkinter import ttk
 from ..analysis import daily_means, format_value, trend_label, trend_per_hour
 from ..correlation import lagged_correlation
 from ..models import DataBundle
-from ..temperature_stats import clear_days, threshold_windows
+from ..temperature_stats import clear_days, summarize_window
 from .charts import ChartCanvas, ChartSeries
 from .theme import SERIES_COLORS
 from .widgets import StatCard
@@ -41,6 +41,9 @@ class TemperatureView(ttk.Frame):
             justify="left",
         )
         self.caption.grid(row=1, column=0, sticky="w", pady=(2, 0))
+        ttk.Button(
+            header, text="Window\u2026", command=self.app.show_window_dialog
+        ).grid(row=0, column=1, rowspan=2, sticky="e")
 
         cards = ttk.Frame(self)
         cards.grid(row=1, column=0, sticky="ew", pady=(12, 0))
@@ -143,17 +146,25 @@ class TemperatureView(ttk.Frame):
             row=0, column=2, sticky="w"
         )
 
-        self.window_vars = {
-            label: tk.StringVar(value="\u2014")
-            for label in ("24 h", "7 days", "30 days", "1 year")
+        self.stat_vars = {
+            "window": tk.StringVar(value=""),
+            "above": tk.StringVar(value="\u2014"),
+            "days": tk.StringVar(value="\u2014"),
+            "meanmax": tk.StringVar(value="\u2014"),
         }
-        for row, (label, variable) in enumerate(self.window_vars.items(), start=1):
+        stats_labels = (
+            ("window", "Window"),
+            ("above", "Above threshold"),
+            ("days", "Days above"),
+            ("meanmax", "Mean / max"),
+        )
+        for row, (key, label) in enumerate(stats_labels, start=1):
             ttk.Label(stats, text=label, style="MutedCard.TLabel").grid(
                 row=row, column=0, sticky="w", pady=1
             )
             ttk.Label(
                 stats,
-                textvariable=variable,
+                textvariable=self.stat_vars[key],
                 style="Card.TLabel",
                 anchor="e",
             ).grid(row=row, column=1, columnspan=2, sticky="e", pady=1)
@@ -161,8 +172,8 @@ class TemperatureView(ttk.Frame):
         self.note = ttk.Label(
             self,
             text="Water temperature: USGS 00010 where available, else a nearby Monitor My Watershed "
-            "sensor. Air/sunshine: Open-Meteo daily. Durations: 15-minute samples for 24 h and 7 d, "
-            "daily means for 30 d and 1 y.",
+            "sensor. Air/sunshine: Open-Meteo daily. The duration uses 15-minute samples for short "
+            "windows and daily means for longer ones; change the window with Window\u2026.",
             style="Muted.TLabel",
             wraplength=1000,
             justify="left",
@@ -195,9 +206,11 @@ class TemperatureView(ttk.Frame):
             source_bits.append("Monitor My Watershed")
         if weather:
             source_bits.append(f"Open-Meteo ({bundle.weather_zone or 'daily'})")
+        window = self.app.analysis_window.clipped()
+        window_text = f"  \u00b7  {window.label} ({window.range_label})"
         self.caption.configure(
             text=(
-                f"{bundle.site.name}  \u00b7  " + " + ".join(source_bits)
+                f"{bundle.site.name}  \u00b7  " + " + ".join(source_bits) + window_text
                 if source_bits
                 else "No temperature sources available for this site"
             )
@@ -254,19 +267,29 @@ class TemperatureView(ttk.Frame):
             self.clear_card.set("\u2014", "", "")
 
     def _render_charts(self, water, weather) -> None:
+        window = self.app.analysis_window.clipped()
         series: list[ChartSeries] = []
-        if water is not None:
+        water_points: list[tuple[datetime, float]] = []
+        if window.days <= 60 and water is not None:
+            water_points = [
+                (sample.time, float(sample.value))
+                for sample in water.valid
+                if window.start <= sample.time.astimezone().date() <= window.end
+            ]
+        elif self._bundle is not None and self._bundle.water_temp_daily:
+            water_points = [
+                (datetime.combine(day, time(12), tzinfo=timezone.utc), value)
+                for day, value in sorted(self._bundle.water_temp_daily.items())
+                if window.start <= day <= window.end
+            ]
+        if water_points:
             series.append(
-                ChartSeries(
-                    "Water",
-                    [(sample.time, float(sample.value)) for sample in water.valid],
-                    SERIES_COLORS["temperature"],
-                )
+                ChartSeries("Water", water_points, SERIES_COLORS["temperature"])
             )
         if weather:
             air_points = []
             for day in weather:
-                if day.mean_c is None:
+                if day.mean_c is None or not (window.start <= day.day <= window.end):
                     continue
                 moment = datetime.combine(day.day, time(12), tzinfo=timezone.utc)
                 air_points.append((moment, day.mean_c))
@@ -296,20 +319,32 @@ class TemperatureView(ttk.Frame):
         )
 
     def _render_comparison(self, water, water_daily: dict, weather) -> None:
+        window = self.app.analysis_window.clipped()
         if water_daily:
-            water_means = water_daily
+            water_means = {
+                day: value
+                for day, value in water_daily.items()
+                if window.start <= day <= window.end
+            }
         elif water is not None:
             water_means = daily_means(water.samples)
+            water_means = {
+                day: value
+                for day, value in water_means.items()
+                if window.start <= day <= window.end
+            }
         else:
             water_means = {}
 
         air_means = {
-            day.day: day.mean_c for day in weather if day.mean_c is not None
+            day.day: day.mean_c
+            for day in weather
+            if day.mean_c is not None and window.start <= day.day <= window.end
         }
         sun_days = {
             day.day: day.sunshine_hours
             for day in weather
-            if day.sunshine_hours is not None
+            if day.sunshine_hours is not None and window.start <= day.day <= window.end
         }
 
         rows: list[str] = []
@@ -337,18 +372,31 @@ class TemperatureView(ttk.Frame):
         )
 
     def _render_stats(self, water, water_daily: dict) -> None:
+        window = self.app.analysis_window.clipped()
         samples = water.samples if water is not None else ()
         daily = water_daily or (
             daily_means(water.samples) if water is not None else {}
         )
-        windows = threshold_windows(
-            samples, daily, self.app.temperature_threshold
+        summary = summarize_window(
+            samples,
+            daily,
+            self.app.temperature_threshold,
+            window.start,
+            window.end,
         )
-        for window in windows:
-            if window.hours <= 0 and not daily:
-                text = "\u2014"
-            else:
-                text = f"{window.hours:.0f} h  \u00b7  {window.percent:.0f}%"
-            variable = self.window_vars.get(window.label)
-            if variable is not None:
-                variable.set(text)
+        self.stat_vars["window"].set(f"{window.label}  \u00b7  {window.range_label}")
+        if summary.hours <= 0 and not daily:
+            self.stat_vars["above"].set("\u2014")
+        else:
+            self.stat_vars["above"].set(
+                f"{summary.hours:.0f} h  \u00b7  {summary.percent:.0f}%"
+            )
+        self.stat_vars["days"].set(
+            f"{summary.days_above} days" if daily else "\u2014"
+        )
+        if summary.mean_c is not None and summary.max_c is not None:
+            self.stat_vars["meanmax"].set(
+                f"{summary.mean_c:.1f} / {summary.max_c:.1f} \u00b0C"
+            )
+        else:
+            self.stat_vars["meanmax"].set("\u2014")

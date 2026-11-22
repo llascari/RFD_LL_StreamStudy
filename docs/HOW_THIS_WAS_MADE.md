@@ -43,6 +43,7 @@ polished marketing: the dead ends are included.
 | 15 | “Map navigation seems broken — it snaps back. Is that load lag? Maybe keep a larger map available for panning.” | Panning moves the view immediately (optimistic), tiles are cached by zoom and prefetched 35 % beyond the viewport, and a failed/slow refresh no longer yanks the map back. Wheel zoom applies when the new tiles arrive instead of reverting. | `4f2ca9f` |
 | 16 | “Have the app check the repo for updates and tell the user; show how to update — and also how to revert or create their own variation.” | `updates.py` compares the git commit (or `VERSION` for ZIP copies) with GitHub; a footer banner and **Help → Check for updates…** dialog show copyable commands; `docs/UPDATING.md` covers update, revert and fork workflows. | `c47cef5` |
 | 17 | “I’m not seeing the flow metrics — where are they displayed and set?” | An always-visible metrics strip under the Rainfall → Flow cards plus a **Metrics…** dialog (and **Settings → Flow metrics…**) showing computed and stored values, the temperature threshold, the Remember toggle and save/clear actions. | `d8e3327` |
+| 18 | “Add settings to select a time window (start/stop, last X days/weeks/months) for the flow metrics and the time-above-temperature analysis.” | Shared `analysis_window.py` with presets (24 h → 5 y) and custom dates; flow history and water-temperature fetches follow the window; ResponseView gets a Window selector, TemperatureView a Window… dialog, and stored metrics record their window. | `pending` |
 
 The first two commits are a different app. That is fine: the prompt changed the domain, and the
 right move was to pivot rather than bolt features onto the wrong program.
@@ -78,6 +79,7 @@ right move was to pivot rather than bolt features onto the wrong program.
 | Map “snapped back” after dragging | the canvas waited for the network, then redrew the old centre | optimistic pan, same-zoom tile cache, 35 % prefetch margin |
 | Flow metrics “not visible” | only appended to one sentence and skipped when the rain scenario was zero | always-visible strip, explicit “no scenario” message, Metrics dialog |
 | Fixture refresh broke tests | assertions pinned to one recorded value | assert structure/ranges/ordering instead of magic numbers |
+| Fixed 24 h/7 d/30 d/1 y stats ignored the user's intent | hard-coded windows | one shared analysis window with presets and custom dates |
 
 ## A prompt recipe you can copy
 
@@ -101,9 +103,9 @@ If you want to try this:
   Map & Correlation, Forecast, Site finder
 - **5 data networks + 1 tile service**: USGS NWIS (IV/DV/site/OGC), NWS `api.weather.gov`,
   Open-Meteo forecast/archive, CoCoRaHS CSV export, Monitor My Watershed ODM2, OpenStreetMap
-- **130 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
+- **142 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
 - **Zero third-party runtime dependencies** — Tk charts, `urllib`, `tk.PhotoImage` for map tiles
-- **~9,800 lines** of Python including tests, **17 commits** at the time of writing
+- **~9,800 lines** of Python including tests, **18 commits** at the time of writing
 
 ## Credit
 

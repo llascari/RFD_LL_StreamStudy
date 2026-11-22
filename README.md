@@ -47,13 +47,15 @@ feeds them**.
   two stations): water temperature, **relative** water depth and conductance, with charts and
   daily-mean correlations against the USGS gage
 - **Temperature** — water vs air temperature, daily sunshine and clear-day counts, water↔air and
-  water↔sunshine correlations, and **time above a settable threshold** (24 h / 7 d / 30 d / 1 y)
+  water↔sunshine correlations, and **time above a settable threshold** for a **selectable analysis
+  window** (24 h / 7 d / 30 d / 90 d / 1 y / 2 y / 5 y or custom dates)
 - **Precipitation comparison** — daily bars and a table comparing up to four sources:
   on-site USGS precipitation (parameter `00045` where available), the nearest CoCoRaHS volunteer
   gauge, Open-Meteo's gridded model, and NWS ASOS observations
 - **Rainfall → Flow** — 2–10 years of daily flow and rain become a fitted rainfall-runoff
   response: storms detected, response rate (cfs per inch), time to peak, recession half-life,
-  a rainfall-vs-rise scatter with the storm examples behind the fit, and a forecast-driven
+  a rainfall-vs-rise scatter with the storm examples behind the fit (all fitted inside the shared
+  analysis window), and a forecast-driven
   predicted hydrograph with a 10–90 % band, the most similar past storms, and an always-visible
   **metrics strip** (rise as % of baseflow/peak, 24 h decay as % of storm flow) with a **Metrics…** dialog
 - **Map & Correlation** — a navigable OpenStreetMap view: **drag to pan, scroll to zoom**, and
@@ -244,6 +246,7 @@ Additional settings (editable through the UI, stored in the same file):
 | `flow_metrics` | last predicted peak/rise/decay percentages per site number (view/save via **Rainfall → Flow → Metrics…** or **Settings → Flow metrics…**) | `{}` |
 | `site_names` | number → station-name map used by the picker | `{}` |
 | `map_zoom` | last map zoom (4–15) | `10` |
+| `analysis_window` | shared window for the flow model and temperature stats: `{"mode": "1y"}` or `{"mode": "custom", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}` | `{"mode": "1y"}` |
 
 **Reset:** use **Settings → Reset settings to defaults…** in the menu bar. It clears recent sites,
 saved metrics and preferences, and keeps the current site loaded.
@@ -304,14 +307,15 @@ RFD_LL_StreamStudy/
 │   ├── temperature_stats.py # hours above a threshold, clear-day counts
 │   ├── ranking.py         # "best nearby gage" scoring and hub suggestion
 │   ├── updates.py         # GitHub commit/VERSION update check
+│   ├── analysis_window.py # shared preset/custom analysis window
 │   ├── analysis.py        # aggregation and formatting helpers
 │   ├── http.py            # cached, retrying urllib client
-│   ├── settings.py        # JSON settings (recent sites, window, history years)
+│   ├── settings.py        # JSON settings (recent sites, analysis window, map)
 │   ├── providers/         # usgs · nws · openmeteo · cocorahs · monitormywatershed
 │   └── ui/                # theme, charts, widgets and nine tab views (incl. map_view)
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 130 tests (providers, models, correlation, temperature, ranking, updates, Tk)
+│   └── test_*.py          # 142 tests (providers, models, correlation, temperature, ranking, updates, Tk)
 ├── docs/                  # screenshots, HOW_THIS_WAS_MADE.md, UPDATING.md
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── VERSION                # human-readable release version used by the update check
