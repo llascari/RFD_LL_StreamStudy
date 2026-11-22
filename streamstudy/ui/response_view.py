@@ -470,6 +470,12 @@ class ResponseView(ttk.Frame):
             top, text=f"Flow metrics \u2014 USGS {site.number}", style="Heading.TLabel"
         ).pack(anchor="w", padx=14, pady=(12, 6))
 
+        history = bundle.history
+        window_line = (
+            f"\nWindow: {history.start.isoformat()} \u2192 {history.end.isoformat()}"
+            if history is not None
+            else ""
+        )
         if prediction is not None:
             computed = (
                 f"Predicted peak {prediction.peak_cfs:,.0f} cfs "
@@ -478,7 +484,7 @@ class ResponseView(ttk.Frame):
                 f"Rise vs peak: {prediction.rise_pct_peak:.0f}%\n"
                 f"24 h decay vs storm flow: {prediction.decay_24h_pct:.0f}%\n"
                 f"Peak time {prediction.peak_time.astimezone():%b %d %H:%M} "
-                f"\u00b7 confidence {prediction.confidence}"
+                f"\u00b7 confidence {prediction.confidence}{window_line}"
             )
         else:
             computed = (
@@ -530,9 +536,16 @@ class ResponseView(ttk.Frame):
             if not data:
                 return "Stored for this site: none"
             missing = "\u2014"  # Python 3.10 forbids backslashes inside f-string braces.
+            window = ""
+            if data.get("window_start") and data.get("window_end"):
+                window = (
+                    f"  window: {data.get('window_start')} \u2192 "
+                    f"{data.get('window_end')}\n"
+                )
             return (
                 "Stored for this site:\n"
-                f"  rise vs baseflow: {data.get('rise_pct_base', missing)}%\n"
+                + window
+                + f"  rise vs baseflow: {data.get('rise_pct_base', missing)}%\n"
                 f"  rise vs peak: {data.get('rise_pct_peak', missing)}%\n"
                 f"  24 h decay: {data.get('decay_24h_pct', missing)}% of storm flow\n"
                 f"  peak {data.get('peak_cfs', missing)} cfs \u00b7 rain "
