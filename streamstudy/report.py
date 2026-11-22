@@ -219,6 +219,16 @@ def _fmt_day(day: date | None) -> str:
     return day.strftime("%b %d, %Y") if day else "n/a"
 
 
+def format_elapsed(seconds: float) -> str:
+    """Format a duration as MM:SS, or H:MM:SS after an hour."""
+    total = max(0, int(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
 def _wrap(text: str, width_chars: int) -> list[str]:
     words = str(text).split()
     lines: list[str] = []

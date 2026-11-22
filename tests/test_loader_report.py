@@ -48,7 +48,11 @@ class FakeReportLoader(BundleLoader):
         self.fail_times = fail_times
         self.history_calls = 0
 
-    def load_history(self, site, *, window=None, years=None, coco_station=None):
+    def load_history(
+        self, site, *, window=None, years=None, coco_station=None, stage=None
+    ):
+        if stage is not None:
+            stage("USGS daily flow and water temperature")
         self.history_calls += 1
         if self.history_calls <= self.fail_times:
             raise RuntimeError("temporary network failure")
@@ -139,15 +143,27 @@ class ReportRegionTest(unittest.TestCase):
         self.assertAlmostEqual(seen[-1][0], 1.0)
         fractions = [fraction for fraction, _message in seen]
         self.assertEqual(fractions, sorted(fractions))
+        messages = [message for _fraction, message in seen]
+        self.assertTrue(any("Site 1 of 2" in message for message in messages))
+        self.assertTrue(any("USGS daily" in message for message in messages))
+        self.assertTrue(any("Site ready" in message for message in messages))
         self.assertEqual(data.threshold_c, 18.5)
 
     def test_failing_neighbour_is_recorded_and_report_continues(self):
         class PartlyFlaky(FakeReportLoader):
             def load_history(
-                self, site, *, window=None, years=None, coco_station=None
+                self,
+                site,
+                *,
+                window=None,
+                years=None,
+                coco_station=None,
+                stage=None,
             ):
                 if site.number == "04232050":
                     raise RuntimeError("no daily values")
+                if stage is not None:
+                    stage("USGS daily flow and water temperature")
                 return make_history(site)
 
         loader = PartlyFlaky([self.near, self.nearer])

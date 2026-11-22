@@ -83,8 +83,10 @@ make test / make gui-test / make run       # same, if you like make
   and half-life. Keep the horizon ≤ 10 days, assert p10 ≤ p50 ≤ p90, and keep the analog window
   (±35 % of forecast rain) honest. The tab re-renders from `_finish_history`, not only `apply_bundle`.
 - **Region report job** — one USGS DV request + one ERA5 request per site, two retries, failures
-  collected in `ReportData.failures`, cancel polled between sites/retries, progress callback
-  `fraction, message`. Never let one bad gage abort the run.
+  collected in `ReportData.failures`, cancel polled between sites/retries. The progress callback
+  gets `(fraction, message)` with `Site N of M · number: stage` text (USGS daily flow,
+  precipitation, ERA5 air, fitting, retry, ready); the dialog adds its own elapsed timer and
+  spinner. Never let one bad gage abort the run.
 - **Map** — `ui/map_view.py`: drag/wheel emit `on_view_change` → `app.request_map_view`, which
   reloads tiles and gages for the new bbox; a debounced `<Configure>` resize emits `on_resize`
   with `force=True`; the Filter box is client-side. Panning sets `MapCanvas._center` immediately

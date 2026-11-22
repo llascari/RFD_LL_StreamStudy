@@ -66,8 +66,9 @@ a lot of public API traffic, so the app:
 - includes the loaded gage first, then nearby gages sorted by distance;
 - makes **two retries** per site with a short delay;
 - keeps going when a site fails and records the reason;
-- updates progress after every request and reports elapsed time;
-- warns after **20 s with no progress** (network stalls happen) and still allows **Cancel**;
+- shows a live **elapsed timer**, a rotating activity indicator and the **current stage**
+  (USGS daily flow, CoCoRaHS/ERA5 precipitation, air temperature, fitting, retry, writing);
+- warns after **20 s with no new data** (network stalls happen) and still allows **Cancel**;
 - runs the whole job on a worker thread, so the window stays responsive.
 
 Start with a single site and a shorter window to check the output, then widen the radius or window.

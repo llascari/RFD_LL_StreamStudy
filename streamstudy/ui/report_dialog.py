@@ -26,7 +26,7 @@ from ..analysis_window import (
     preset_window,
 )
 from ..loader import ReportCancelled
-from ..report import write_report
+from ..report import format_elapsed, write_report
 
 
 class ReportDialog(tk.Toplevel):
@@ -46,6 +46,8 @@ class ReportDialog(tk.Toplevel):
         self._poll_id: str | None = None
         self._output: Path | None = None
         self._last_message = "Ready"
+        self._tick = 0
+        self._retry_count = 0
 
         site = app.bundle.site if app.bundle is not None else None
         if site is None:
@@ -60,7 +62,6 @@ class ReportDialog(tk.Toplevel):
         self._build()
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._poll()
 
     # -- construction ---------------------------------------------------
     def _build(self) -> None:
@@ -206,9 +207,15 @@ class ReportDialog(tk.Toplevel):
             wraplength=560,
             justify="left",
         ).grid(row=9, column=0, columnspan=3, sticky="w")
+        self.elapsed_var = tk.StringVar(value="Elapsed 00:00")
+        ttk.Label(
+            frame,
+            textvariable=self.elapsed_var,
+            style="Muted.TLabel",
+        ).grid(row=10, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=10, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        buttons.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         buttons.columnconfigure(0, weight=1)
         self.open_button = ttk.Button(
             buttons, text="Open report", command=self._open_report, state="disabled"
@@ -288,12 +295,17 @@ class ReportDialog(tk.Toplevel):
         self._cancel.clear()
         self._running = True
         self._started = self._last_activity = time.monotonic()
+        self._tick = 0
+        self._retry_count = 0
         self.progress.configure(mode="determinate", value=0)
         self._last_message = "Starting\u2026"
-        self.progress_var.set(self._last_message)
+        self.elapsed_var.set("Elapsed 00:00")
+        self._refresh_status()
         self.generate_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         self.open_button.configure(state="disabled")
+        if self._poll_id is None:
+            self._poll()
 
         app = self.app
         site = self.site
@@ -332,10 +344,28 @@ class ReportDialog(tk.Toplevel):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _refresh_status(self) -> None:
+        """Show a rotating activity glyph plus the latest stage message."""
+        if not self._running:
+            self.progress_var.set(self._last_message)
+            return
+        spinner = "|/-\\"[self._tick % 4]
+        text = f"{spinner} {self._last_message}"
+        quiet = time.monotonic() - self._last_activity
+        if quiet > 20:
+            text += (
+                f"  \u2014  no new data for {quiet:.0f} s; "
+                "network sources can be slow."
+            )
+        elif quiet > 8:
+            text += "  (still working)"
+        self.progress_var.set(text)
+
     def _request_cancel(self) -> None:
         self._cancel.set()
         self.cancel_button.configure(state="disabled")
-        self.progress_var.set("Cancelling after the current site\u2026")
+        self._last_message = "Cancelling after the current site\u2026"
+        self._refresh_status()
 
     def _poll(self) -> None:
         if not self.winfo_exists():
@@ -349,11 +379,13 @@ class ReportDialog(tk.Toplevel):
                     if kind == "progress":
                         self.progress.configure(value=100.0 * float(value))
                         self._last_message = str(extra)
-                        self.progress_var.set(self._last_message)
+                        if "Retrying" in self._last_message:
+                            self._retry_count += 1
+                        self._refresh_status()
                     elif kind == "writing":
                         self.progress.configure(value=100)
                         self._last_message = "Writing the PDF\u2026"
-                        self.progress_var.set(self._last_message)
+                        self._refresh_status()
                     elif kind == "done":
                         self._finish_done(value, extra)
                     elif kind == "cancelled":
@@ -366,17 +398,16 @@ class ReportDialog(tk.Toplevel):
         drain()
         if self._running:
             now = time.monotonic()
-            quiet = now - self._last_activity
-            elapsed = now - self._started
-            if quiet > 20:
-                self.progress_var.set(
-                    f"{self._last_message}  \u2014  no new data for {quiet:.0f} s; "
-                    f"elapsed {elapsed:.0f} s. Network sources can be slow."
-                )
-            elif quiet > 8:
-                self.progress_var.set(
-                    f"{self._last_message}  (still working, {elapsed:.0f} s elapsed)"
-                )
+            self._tick += 1
+            suffix = (
+                f"  \u00b7  {self._retry_count} retr{'y' if self._retry_count == 1 else 'ies'}"
+                if self._retry_count
+                else ""
+            )
+            self.elapsed_var.set(
+                f"Elapsed {format_elapsed(now - self._started)}{suffix}"
+            )
+            self._refresh_status()
             self._poll_id = self.after(250, self._poll)
         else:
             self._poll_id = None
@@ -390,7 +421,16 @@ class ReportDialog(tk.Toplevel):
         if failures:
             text += f"  |  {failures} site(s) skipped (see report)"
         self._last_message = text
-        self.progress_var.set(text)
+        self._refresh_status()
+        self.elapsed_var.set(
+            f"Finished in {format_elapsed(time.monotonic() - self._started)}"
+            + (
+                f"  \u00b7  {self._retry_count} retr"
+                f"{'y' if self._retry_count == 1 else 'ies'}"
+                if self._retry_count
+                else ""
+            )
+        )
         self.open_button.configure(state="normal")
         self.cancel_button.configure(state="disabled")
         self.generate_button.configure(state="normal")
@@ -398,13 +438,21 @@ class ReportDialog(tk.Toplevel):
 
     def _finish_cancelled(self) -> None:
         self._running = False
-        self.progress_var.set("Cancelled. No report was written.")
+        self._last_message = "Cancelled. No report was written."
+        self._refresh_status()
+        self.elapsed_var.set(
+            f"Stopped after {format_elapsed(time.monotonic() - self._started)}"
+        )
         self.cancel_button.configure(state="disabled")
         self.generate_button.configure(state="normal")
 
     def _finish_error(self, error) -> None:
         self._running = False
-        self.progress_var.set("Report failed.")
+        self._last_message = "Report failed."
+        self._refresh_status()
+        self.elapsed_var.set(
+            f"Failed after {format_elapsed(time.monotonic() - self._started)}"
+        )
         self.cancel_button.configure(state="disabled")
         self.generate_button.configure(state="normal")
         messagebox.showerror(

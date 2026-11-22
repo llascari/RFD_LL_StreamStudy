@@ -399,6 +399,35 @@ class AppSmokeTest(unittest.TestCase):
         self.assertIn("StreamStudy_0423205010_", dialog.path_var.get())
         self.assertEqual(str(dialog.open_button.cget("state")), "disabled")
         self.assertEqual(str(dialog.cancel_button.cget("state")), "disabled")
+        self.assertEqual(dialog.elapsed_var.get(), "Elapsed 00:00")
+        dialog._on_close()
+
+    def test_report_dialog_progress_polls_to_completion(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from streamstudy.ui.report_dialog import ReportDialog
+
+        dialog = ReportDialog(self.app)
+        output = Path(self.tmp.name) / "progress.pdf"
+        output.write_bytes(b"%PDF-1.4\n%%EOF\n")
+        dialog.path_var.set(str(output))
+        fake = SimpleNamespace(region=(), failures=())
+        with patch.object(
+            self.app.loader, "load_report_region", return_value=fake
+        ):
+            with patch(
+                "streamstudy.ui.report_dialog.write_report", return_value=output
+            ):
+                dialog._start()
+                self.assertIsNotNone(dialog._poll_id)
+                deadline = time.time() + 5
+                while dialog._running and time.time() < deadline:
+                    self.root.update()
+                    time.sleep(0.02)
+        self.assertFalse(dialog._running)
+        self.assertIn("Report written", dialog.progress_var.get())
+        self.assertIn("Finished in", dialog.elapsed_var.get())
         dialog._on_close()
 
     def test_site_search(self):

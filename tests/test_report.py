@@ -10,6 +10,7 @@ from streamstudy.report import (
     ReportData,
     ReportSite,
     extreme_days,
+    format_elapsed,
     summarise_flow,
     summarise_temperature,
     write_report,
@@ -109,6 +110,15 @@ def make_report(region: bool = False) -> ReportData:
         generated=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
         region=sites,
     )
+
+
+class ElapsedFormatTest(unittest.TestCase):
+    def test_formats_minutes_and_hours(self):
+        self.assertEqual(format_elapsed(0), "00:00")
+        self.assertEqual(format_elapsed(5.9), "00:05")
+        self.assertEqual(format_elapsed(65), "01:05")
+        self.assertEqual(format_elapsed(3665), "1:01:05")
+        self.assertEqual(format_elapsed(-4), "00:00")
 
 
 class SummaryTest(unittest.TestCase):

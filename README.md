@@ -78,8 +78,8 @@ feeds them**.
   loaded creek or every creek within a chosen radius (up to 12 sites), using up to **10 years** of
   daily flow and temperature: hydrographs, rainfall, temperature statistics and threshold duration,
   highest/lowest flow days, storm evidence, a schematic locator map, sources and limitations.
-  Long region jobs run in the background with per-site retries, a live progress bar, a stall hint
-  and a Cancel button. See **[docs/REPORTS.md](docs/REPORTS.md)**.
+  Long region jobs run in the background with per-site retries, a live progress bar, an elapsed
+  timer and current-stage message, a stall hint and a Cancel button. See **[docs/REPORTS.md](docs/REPORTS.md)**.
 - **Site finder** — search active USGS surface-water gages by state, within ~50 km of the
   loaded site, or by **station name** (USGS OGC API); **Rank by data value** scores nearby gages
   (model fit, peer correlation, water temperature, proximity) and suggests a central hub
@@ -149,7 +149,8 @@ a radius; with a radius, every active USGS discharge gage inside it becomes its 
 The PDF writer is ~160 lines of standard-library code (Helvetica, vector charts, no images), so
 there is nothing extra to install. Region reports fetch one USGS daily-values request and one
 ERA5 request per site; each site gets two retries, failures are listed instead of aborting the run,
-and the dialog shows progress, elapsed time, a stall hint after 20 s without new data, and Cancel.
+and the dialog shows a live elapsed timer, spinner and current stage (USGS, precipitation,
+ERA5, fitting, retry, writing), a stall hint after 20 s without new data, and Cancel.
 
 ## Regional map and cross-correlation
 
@@ -376,7 +377,7 @@ RFD_LL_StreamStudy/
 │   └── ui/                # theme, charts, widgets, ten tab views, map_view, report_dialog
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 167 tests (providers, models, forecast, report/PDF, region loader, Tk)
+│   └── test_*.py          # 170 tests (providers, models, forecast, report/PDF, region loader, Tk)
 ├── docs/                  # screenshots, HOW_THIS_WAS_MADE.md, REPORTS.md, UPDATING.md
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── VERSION                # human-readable release version used by the update check

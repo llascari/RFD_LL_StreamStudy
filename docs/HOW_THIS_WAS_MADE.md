@@ -96,6 +96,7 @@ right move was to pivot rather than bolt features onto the wrong program.
 | PDF temperature note ran off the page | a long string was drawn with `page.text()` instead of the wrapper | use `_paragraph()` and inspect the rendered pages |
 | Flow forecast evidence table cut off dates | column widths exceeded the side panel | trimmed widths to fit without a horizontal scrollbar |
 | Reports had no air-temperature history | the ERA5 archive request only asked for precipitation | request daily mean/max/min temperature and sunshine, and treat the fields as optional |
+| Report dialog sat on “Starting…” | the idle poll loop stopped scheduling `after` before Generate was pressed | start polling in `_start`, then add a live elapsed timer, spinner and per-source stage messages |
 
 ## A prompt recipe you can copy
 
@@ -120,10 +121,10 @@ If you want to try this:
 - **5 data networks + 1 tile service**: USGS NWIS (IV/DV/site/OGC), NWS `api.weather.gov`,
   Open-Meteo forecast/archive, CoCoRaHS CSV export, Monitor My Watershed ODM2, OpenStreetMap
 - **2 output formats**: the live Tk UI and a multi-page PDF (single gage or radius region)
-- **167 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
+- **170 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
 - **Zero third-party runtime dependencies** — Tk charts, `urllib`, `tk.PhotoImage` for map tiles,
   and a hand-written PDF 1.4 writer
-- **~13,500 lines** of Python including tests, **27 commits** at the time of writing
+- **~13,600 lines** of Python including tests, **29 commits** at the time of writing
 
 ## Credit
 

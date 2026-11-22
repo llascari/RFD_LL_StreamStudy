@@ -220,8 +220,13 @@ class BundleLoader:
         window: TimeWindow | None = None,
         years: int | None = None,
         coco_station: str | None = None,
+        stage=None,
     ) -> HistoryBundle:
-        """Daily flow + precipitation for a window, with a fitted response."""
+        """Daily flow + precipitation for a window, with a fitted response.
+
+        ``stage`` is an optional ``stage(message)`` callback used by long report
+        jobs to narrate which source is being fetched.
+        """
         if window is None:
             window = (
                 last_years_window(years) if years is not None else preset_window("1y")
@@ -232,6 +237,8 @@ class BundleLoader:
         errors: list[str] = []
         flow: dict[date, float] = {}
         water_temp: dict[date, float] = {}
+        if stage is not None:
+            stage("USGS daily flow and water temperature")
         try:
             daily = self.usgs.fetch_daily(
                 site.number, start, end, ("00060", "00010")
@@ -244,6 +251,8 @@ class BundleLoader:
         precip: dict[date, float] = {}
         source = ""
         if coco_station:
+            if stage is not None:
+                stage("CoCoRaHS precipitation history")
             try:
                 days = (date.today() - start).days + 2
                 rows = self.cocorahs.daily_history(coco_station, days=days)
@@ -261,6 +270,8 @@ class BundleLoader:
                 errors.append(f"CoCoRaHS history: {exc}")
 
         if not precip:
+            if stage is not None:
+                stage("Open-Meteo ERA5 precipitation")
             try:
                 archive = self.openmeteo.fetch_archive(
                     site.latitude, site.longitude, start, end
@@ -274,6 +285,8 @@ class BundleLoader:
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Open-Meteo archive: {exc}")
 
+        if stage is not None:
+            stage("Fitting rainfall-runoff response")
         events, fit = analyse_history(flow, precip)
         return HistoryBundle(
             start=start,
@@ -298,16 +311,32 @@ class BundleLoader:
         retries: int = 2,
         delay: float = 0.0,
         cancel=None,
+        progress=None,
     ) -> ReportSite:
-        """Load one gage for a report, retrying transport failures."""
+        """Load one gage for a report, retrying transport failures.
+
+        ``progress(fraction, message)`` is local to this site (0 to 1) and
+        narrates the USGS, precipitation, ERA5 and fitting stages.
+        """
         attempts = max(1, int(retries) + 1)
         last_error: Exception | None = None
+        mark = 0.05
+
+        def report_stage(message: str) -> None:
+            nonlocal mark
+            mark = min(0.65, mark + 0.13)
+            if progress is not None:
+                progress(mark, message)
+
         for attempt in range(attempts):
             if cancel is not None and cancel():
                 raise ReportCancelled()
             try:
                 history = self.load_history(
-                    site, window=window, coco_station=coco_station
+                    site,
+                    window=window,
+                    coco_station=coco_station,
+                    stage=report_stage if progress is not None else None,
                 )
                 if not history.flow_daily:
                     raise RuntimeError("USGS returned no daily flow values")
@@ -316,6 +345,8 @@ class BundleLoader:
                 air_min: dict[date, float] = {}
                 sunshine: dict[date, float] = {}
                 errors = list(history.errors)
+                if progress is not None:
+                    progress(0.78, "Fetching ERA5 air temperature and sunshine")
                 try:
                     archive = self.openmeteo.fetch_archive(
                         site.latitude, site.longitude, window.start, window.end
@@ -331,6 +362,9 @@ class BundleLoader:
                             sunshine[day.day] = day.sunshine_hours
                 except Exception as exc:  # noqa: BLE001 - report continues without air temp
                     errors.append(f"Air temperature archive: {exc}")
+                if progress is not None:
+                    progress(0.95, "Preparing report data")
+                    progress(1.0, "Site ready")
                 return ReportSite(
                     site=site,
                     history=history,
@@ -344,10 +378,16 @@ class BundleLoader:
                 raise
             except Exception as exc:  # noqa: BLE001 - retried below
                 last_error = exc
-                if attempt + 1 < attempts and delay > 0:
-                    if cancel is not None and cancel():
-                        raise ReportCancelled()
-                    time.sleep(delay)
+                if attempt + 1 < attempts:
+                    if progress is not None:
+                        progress(
+                            mark,
+                            f"Retrying after attempt {attempt + 1} of {attempts}: {exc}",
+                        )
+                    if delay > 0:
+                        if cancel is not None and cancel():
+                            raise ReportCancelled()
+                        time.sleep(delay)
         raise RuntimeError(f"{site.number}: {last_error}")
 
     def load_report_region(
@@ -409,8 +449,20 @@ class BundleLoader:
             nearby = nearby[: max_sites - 1]
 
         total = 1 + len(nearby)
+        last_fraction = 0.0
+
+        def site_progress(fraction, message, *, index: int, label: str) -> None:
+            nonlocal last_fraction
+            value = (index - 1 + max(0.0, min(1.0, float(fraction)))) / total
+            last_fraction = max(last_fraction, value)
+            if progress is not None:
+                progress(
+                    last_fraction,
+                    f"Site {index} of {total} \u00b7 {label}: {message}",
+                )
+
         if progress is not None:
-            progress(0.02, f"Loading {primary_site.number} (1 of {total})")
+            progress(0.02, f"Site 1 of {total} \u00b7 {primary_site.number}: starting")
         primary = self.load_report_site(
             primary_site,
             window,
@@ -418,9 +470,17 @@ class BundleLoader:
             retries=retries,
             delay=delay,
             cancel=cancel,
+            progress=(
+                lambda fraction, message: site_progress(
+                    fraction,
+                    message,
+                    index=1,
+                    label=primary_site.number,
+                )
+            )
+            if progress is not None
+            else None,
         )
-        if progress is not None:
-            progress(1.0 / total, f"Loaded {primary_site.number} (1 of {total})")
 
         region: list[ReportSite] = []
         for index, (candidate, distance) in enumerate(nearby, start=2):
@@ -429,7 +489,8 @@ class BundleLoader:
             if progress is not None:
                 progress(
                     (index - 1) / total,
-                    f"Loading {candidate.number} ({index} of {total}, {distance:.1f} km)",
+                    f"Site {index} of {total} \u00b7 {candidate.number}: "
+                    f"starting ({distance:.1f} km away)",
                 )
             try:
                 report = self.load_report_site(
@@ -438,20 +499,33 @@ class BundleLoader:
                     retries=retries,
                     delay=delay,
                     cancel=cancel,
+                    progress=(
+                        lambda fraction, message, idx=index, number=candidate.number: site_progress(
+                            fraction,
+                            message,
+                            index=idx,
+                            label=number,
+                        )
+                    )
+                    if progress is not None
+                    else None,
                 )
                 region.append(replace(report, distance_km=distance))
             except ReportCancelled:
                 raise
             except Exception as exc:  # noqa: BLE001 - one bad gage must not stop the report
                 failures.append(f"{candidate.number}: {exc}")
-            if progress is not None:
-                progress(
-                    index / total,
-                    f"Loaded {index} of {total} sites",
-                )
+                if progress is not None:
+                    progress(
+                        index / total,
+                        f"Site {index} of {total} \u00b7 {candidate.number}: skipped ({exc})",
+                    )
 
         if progress is not None:
-            progress(1.0, f"Loaded {len(region) + 1} of {total} sites")
+            progress(
+                1.0,
+                f"All {total} sites processed; preparing the PDF",
+            )
         return ReportData(
             primary=primary,
             window=window,

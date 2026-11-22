@@ -89,6 +89,18 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(history.start, window.start)
         self.assertEqual(history.end, window.end)
 
+    def test_history_reports_source_stages(self):
+        from streamstudy.analysis_window import preset_window
+
+        site = self.loader.load("0423205010", LoadOptions(days=7)).site
+        seen = []
+        self.loader.load_history(
+            site, window=preset_window("30d"), stage=seen.append
+        )
+        self.assertTrue(any("USGS daily" in message for message in seen))
+        self.assertTrue(any("ERA5" in message for message in seen))
+        self.assertTrue(any("Fitting" in message for message in seen))
+
     def test_history_carries_precip_series(self):
         site = self.loader.load("0423205010", LoadOptions(days=7)).site
         history = self.loader.load_history(site, years=3)
