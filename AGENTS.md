@@ -40,17 +40,19 @@ streamstudy/
   models.py         Site, Series, Sample, FlowEvent, ResponseFit, DataBundle, HistoryBundle
   providers/        usgs.py · nws.py · openmeteo.py · cocorahs.py · monitormywatershed.py
                     (pure parse_* functions + thin fetch)
-  response.py       baseflow, storm events, response fit, scenario → predicted hydrograph
+  response.py       baseflow, storm events, response fit, 48 h scenario + 10-day horizon prediction
   correlation.py    lagged log-flow Pearson, flow↔flow and flow↔rain
-  analysis_window.py  shared preset/custom analysis window
+  analysis_window.py  shared preset/custom analysis window (1d … 10y)
   temperature_stats.py  hours above a threshold in a window, clear days
+  report.py         historical statistics + multi-page report composition
+  pdf.py            stdlib-only PDF 1.4 writer (text, lines, rects, polylines, circles)
   ranking.py        nearby-gage scoring and hub suggestion
   updates.py        GitHub commit / VERSION update check
   analysis.py       daily aggregation, unit conversion, stats, nice axis steps, pearson
   http.py           cached urllib client (text/bytes/json), retries on 5xx only
   settings.py       JSON settings: recent sites, windows, map radius
   credits.py        attribution text shown in About
-  ui/               theme, charts, map_view, nine tab views, widgets
+  ui/               theme, charts, map_view, ten tab views, widgets, report_dialog.py
 tests/              fixtures + unit/smoke tests (unittest, no pytest required)
 scripts/            capture_fixtures.py (refresh fixtures from live APIs)
 ```
@@ -76,9 +78,13 @@ make test / make gui-test / make run       # same, if you like make
 - **Add a precipitation source** — new module in `providers/`, a `parse_*` function that returns
   `{date: inches}` or a series, wire it into `loader.load_history` / `load_regional`, and add the
   source to `analysis.bundle_precip_sources`. Add a fixture + tests.
-- **Tune the rainfall→flow model** — change `response.py` only; keep `detect_events`,
-  `fit_response` and `predict` pure. Extend `tests/test_response.py` with a synthetic basin whose
-  true response is known, and keep the 10–90 band honest.
+- **Flow forecast** — `forecast_scenario_horizon()` uses NWS QPF first and only the Open-Meteo
+  tail after the last QPF time; `predict_horizon()` convolves each increment with the fitted lag
+  and half-life. Keep the horizon ≤ 10 days, assert p10 ≤ p50 ≤ p90, and keep the analog window
+  (±35 % of forecast rain) honest. The tab re-renders from `_finish_history`, not only `apply_bundle`.
+- **Region report job** — one USGS DV request + one ERA5 request per site, two retries, failures
+  collected in `ReportData.failures`, cancel polled between sites/retries, progress callback
+  `fraction, message`. Never let one bad gage abort the run.
 - **Map** — `ui/map_view.py`: drag/wheel emit `on_view_change` → `app.request_map_view`, which
   reloads tiles and gages for the new bbox; a debounced `<Configure>` resize emits `on_resize`
   with `force=True`; the Filter box is client-side. Panning sets `MapCanvas._center` immediately
@@ -94,7 +100,7 @@ make test / make gui-test / make run       # same, if you like make
 - **Nearby hub ranking** — `ranking.py` scores candidates on fit r²/storm count, mean peer
   correlation, water-temperature availability and distance; the hub is the best site nearest the
   centroid of the top three. `loader.rank_sites` fetches the history; the Site finder shows it.
-- **Analysis window** — `analysis_window.py` holds `TimeWindow` (presets 1d/7d/30d/90d/1y/2y/5y
+- **Analysis window** — `analysis_window.py` holds `TimeWindow` (presets 1d/7d/30d/90d/1y/2y/5y/10y
   plus custom dates). `app.analysis_window` is saved in `settings.analysis_window`, passed to
   `LoadOptions.analysis_window` for water temperature, and to `loader.load_history(window=…)` for
   the flow fit; ResponseView and TemperatureView share it. Dates are local; IV is only used for
@@ -131,7 +137,8 @@ make test / make gui-test / make run       # same, if you like make
   (`api2.cocorahs.org`) is IPv6-only on some networks and times out; the CSV export is the
   supported bulk path. Treat coverage < 35 % as insufficient and fall back to ERA5.
 - **ERA5** (Open-Meteo archive) lags a few days; daily unix stamps are local midnight and need
-  `utc_offset_seconds` to recover the local date.
+  `utc_offset_seconds` to recover the local date. `ArchiveData.weather` is optional (temperature
+  and sunshine may be absent); report code must tolerate empty dicts.
 - **OSM tiles** — fetch only the visible view, cache in memory, never bulk-download, always show
   “© OpenStreetMap contributors”. Degrade to the schematic grid if tiles fail.
 - **OGC name search** — CQL2 `LIKE` is case-sensitive against upper-case station names; use
@@ -156,6 +163,12 @@ make test / make gui-test / make run       # same, if you like make
 - Tk tests: create `tk.Tk()`, `withdraw()` unless the test needs geometry, and always destroy.
   For drawing assertions, deiconify, select the tab, `root.update()`, then inspect canvas items.
 - Determinism: pass explicit dates into pure functions; never assert on “today”.
+- PDF tests: assert the `%PDF-1.4` header, `%%EOF`, `/Type /Page ` count and a known string in
+  the bytes. Do not assert exact byte size or compressed text. For layout, render with
+  `pdftoppm -png` and actually look at the pages.
+- Async UI tests: after `apply_bundle`, history loads on a worker thread. Do not assert on status
+  text that `_finish_history` may replace; either wait for `history_loading` to clear or assert a
+  view-local value.
 
 ## Attribution protocol
 

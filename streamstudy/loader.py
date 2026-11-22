@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import time
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
@@ -16,6 +18,24 @@ from .providers.monitormywatershed import MonitorMyWatershedProvider
 from .providers.nws import NwsProvider
 from .providers.openmeteo import OpenMeteoProvider
 from .providers.usgs import UsgsProvider
+from .report import ReportData, ReportSite
+
+
+class ReportCancelled(Exception):
+    """Raised when the user cancels a long report job."""
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in kilometres."""
+    radius = 6371.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dphi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
+    )
+    return 2.0 * radius * math.asin(min(1.0, math.sqrt(a)))
 
 
 @dataclass(frozen=True)
@@ -103,7 +123,7 @@ class BundleLoader:
         # -- Open-Meteo modelled precipitation
         try:
             model = self.openmeteo.fetch(
-                site.latitude, site.longitude, past_days=min(days, 60), forecast_days=2
+                site.latitude, site.longitude, past_days=min(days, 60), forecast_days=10
             )
             bundle.openmeteo_hourly = model.hourly
             bundle.openmeteo_daily = model.daily
@@ -265,7 +285,180 @@ class BundleLoader:
             fit=fit,
             precip=tuple(sorted(precip.items())),
             water_temp_daily=water_temp,
+            flow_daily=flow,
             errors=errors,
+        )
+
+    def load_report_site(
+        self,
+        site: Site,
+        window: TimeWindow,
+        *,
+        coco_station: str | None = None,
+        retries: int = 2,
+        delay: float = 0.0,
+        cancel=None,
+    ) -> ReportSite:
+        """Load one gage for a report, retrying transport failures."""
+        attempts = max(1, int(retries) + 1)
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            if cancel is not None and cancel():
+                raise ReportCancelled()
+            try:
+                history = self.load_history(
+                    site, window=window, coco_station=coco_station
+                )
+                if not history.flow_daily:
+                    raise RuntimeError("USGS returned no daily flow values")
+                air_mean: dict[date, float] = {}
+                air_max: dict[date, float] = {}
+                air_min: dict[date, float] = {}
+                sunshine: dict[date, float] = {}
+                errors = list(history.errors)
+                try:
+                    archive = self.openmeteo.fetch_archive(
+                        site.latitude, site.longitude, window.start, window.end
+                    )
+                    for day in archive.weather:
+                        if day.mean_c is not None:
+                            air_mean[day.day] = day.mean_c
+                        if day.max_c is not None:
+                            air_max[day.day] = day.max_c
+                        if day.min_c is not None:
+                            air_min[day.day] = day.min_c
+                        if day.sunshine_hours is not None:
+                            sunshine[day.day] = day.sunshine_hours
+                except Exception as exc:  # noqa: BLE001 - report continues without air temp
+                    errors.append(f"Air temperature archive: {exc}")
+                return ReportSite(
+                    site=site,
+                    history=history,
+                    air_mean=air_mean,
+                    air_max=air_max,
+                    air_min=air_min,
+                    sunshine=sunshine,
+                    errors=tuple(errors),
+                )
+            except ReportCancelled:
+                raise
+            except Exception as exc:  # noqa: BLE001 - retried below
+                last_error = exc
+                if attempt + 1 < attempts and delay > 0:
+                    if cancel is not None and cancel():
+                        raise ReportCancelled()
+                    time.sleep(delay)
+        raise RuntimeError(f"{site.number}: {last_error}")
+
+    def load_report_region(
+        self,
+        primary_site: Site,
+        window: TimeWindow,
+        *,
+        radius_km: float = 10.0,
+        include_region: bool = True,
+        max_sites: int = 6,
+        threshold_c: float = 20.0,
+        coco_station: str | None = None,
+        retries: int = 2,
+        delay: float = 0.0,
+        progress=None,
+        cancel=None,
+    ) -> ReportData:
+        """Build a single-gage or radius report, one site at a time.
+
+        ``progress`` is called as ``progress(fraction, message)``. ``cancel``
+        is polled between sites and between retries; when it returns true a
+        :class:`ReportCancelled` is raised. A site that still fails after its
+        retries is listed in ``ReportData.failures`` and the report continues.
+        """
+        window = window.clipped()
+        failures: list[str] = []
+        max_sites = max(1, min(int(max_sites), 12))
+        radius_km = max(0.0, min(float(radius_km), 100.0))
+
+        nearby: list[tuple[Site, float]] = []
+        if include_region and radius_km > 0 and max_sites > 1:
+            lat_span = radius_km / 111.0
+            lon_span = radius_km / max(0.2, 111.0 * math.cos(math.radians(primary_site.latitude)))
+            bbox = (
+                primary_site.longitude - lon_span,
+                primary_site.latitude - lat_span,
+                primary_site.longitude + lon_span,
+                primary_site.latitude + lat_span,
+            )
+            if progress is not None:
+                progress(0.01, "Searching for nearby USGS gages")
+            try:
+                found = self.usgs.search_sites(bbox=bbox, limit=max(30, max_sites * 6))
+            except Exception as exc:  # noqa: BLE001 - primary report can still run
+                failures.append(f"Nearby gage search: {exc}")
+                found = []
+            for candidate in found:
+                if candidate.number == primary_site.number:
+                    continue
+                distance = _haversine_km(
+                    primary_site.latitude,
+                    primary_site.longitude,
+                    candidate.latitude,
+                    candidate.longitude,
+                )
+                if distance <= radius_km:
+                    nearby.append((candidate, distance))
+            nearby.sort(key=lambda item: item[1])
+            nearby = nearby[: max_sites - 1]
+
+        total = 1 + len(nearby)
+        if progress is not None:
+            progress(0.02, f"Loading {primary_site.number} (1 of {total})")
+        primary = self.load_report_site(
+            primary_site,
+            window,
+            coco_station=coco_station,
+            retries=retries,
+            delay=delay,
+            cancel=cancel,
+        )
+        if progress is not None:
+            progress(1.0 / total, f"Loaded {primary_site.number} (1 of {total})")
+
+        region: list[ReportSite] = []
+        for index, (candidate, distance) in enumerate(nearby, start=2):
+            if cancel is not None and cancel():
+                raise ReportCancelled()
+            if progress is not None:
+                progress(
+                    (index - 1) / total,
+                    f"Loading {candidate.number} ({index} of {total}, {distance:.1f} km)",
+                )
+            try:
+                report = self.load_report_site(
+                    candidate,
+                    window,
+                    retries=retries,
+                    delay=delay,
+                    cancel=cancel,
+                )
+                region.append(replace(report, distance_km=distance))
+            except ReportCancelled:
+                raise
+            except Exception as exc:  # noqa: BLE001 - one bad gage must not stop the report
+                failures.append(f"{candidate.number}: {exc}")
+            if progress is not None:
+                progress(
+                    index / total,
+                    f"Loaded {index} of {total} sites",
+                )
+
+        if progress is not None:
+            progress(1.0, f"Loaded {len(region) + 1} of {total} sites")
+        return ReportData(
+            primary=primary,
+            window=window,
+            radius_km=radius_km if include_region else 0.0,
+            threshold_c=max(0.0, min(40.0, float(threshold_c))),
+            failures=tuple(failures),
+            region=tuple(region),
         )
 
     def rank_sites(

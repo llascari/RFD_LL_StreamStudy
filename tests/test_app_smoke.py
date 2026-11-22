@@ -118,6 +118,7 @@ class AppSmokeTest(unittest.TestCase):
                 "Rainfall \u2192 Flow",
                 "Map & Correlation",
                 "Forecast",
+                "Flow forecast",
                 "Site finder",
             ],
         )
@@ -371,6 +372,34 @@ class AppSmokeTest(unittest.TestCase):
         showinfo.assert_called_once()
         _title, message = showinfo.call_args.args
         self.assertIn("DeepSeek V4.1 Flash", message)
+
+    def test_file_menu_has_report_command(self):
+        menubar = self.root.nametowidget(self.root.cget("menu"))
+        entries = {
+            menubar.entrycget(index, "label"): index
+            for index in range(menubar.index("end") + 1)
+            if menubar.type(index) != "tearoff"
+        }
+        self.assertIn("File", entries)
+        file_menu = self.root.nametowidget(
+            menubar.entrycget(entries["File"], "menu")
+        )
+        commands = [
+            file_menu.entrycget(index, "label")
+            for index in range(file_menu.index("end") + 1)
+            if file_menu.type(index) != "separator"
+        ]
+        self.assertIn("Generate PDF report\u2026", commands)
+
+    def test_report_dialog_opens_for_loaded_site(self):
+        from streamstudy.ui.report_dialog import ReportDialog
+
+        dialog = ReportDialog(self.app)
+        self.root.update()
+        self.assertIn("StreamStudy_0423205010_", dialog.path_var.get())
+        self.assertEqual(str(dialog.open_button.cget("state")), "disabled")
+        self.assertEqual(str(dialog.cancel_button.cget("state")), "disabled")
+        dialog._on_close()
 
     def test_site_search(self):
         sites = self.app.providers["usgs"].search_sites(state="NY")

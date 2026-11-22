@@ -17,6 +17,7 @@ PRESETS: tuple[tuple[str, str, int], ...] = (
     ("1y", "Last 1 year", 365),
     ("2y", "Last 2 years", 730),
     ("5y", "Last 5 years", 1825),
+    ("10y", "Last 10 years", 3650),
 )
 PRESET_BY_KEY = {key: (label, days) for key, label, days in PRESETS}
 PRESET_LABELS = [label for _key, label, _days in PRESETS]

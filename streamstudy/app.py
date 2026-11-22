@@ -40,11 +40,13 @@ from .settings import (
     remember_site,
     save_settings,
 )
+from .ui.flow_forecast_view import FlowForecastView
 from .ui.forecast_view import ForecastView
 from .ui.home_view import HomeView
 from .ui.hydro_view import HydroView
 from .ui.map_view import MapView, fetch_tiles, tiles_for_bbox, view_bbox
 from .ui.precip_view import PrecipView
+from .ui.report_dialog import ReportDialog
 from .ui.response_view import ResponseView
 from .ui.sensors_view import SensorsView
 from .ui.sites_view import SitesView
@@ -161,7 +163,14 @@ class StreamStudyApp:
         self.root.minsize(1000, 720)
         apply_theme(self.root)
 
-        menubar = tk.Menu(self.root)
+        menubar = tk.Menu(self.root, tearoff=False)
+        file_menu = tk.Menu(menubar, tearoff=False)
+        file_menu.add_command(
+            label="Generate PDF report\u2026", command=self.show_report_dialog
+        )
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.close)
+        menubar.add_cascade(label="File", menu=file_menu)
         settings_menu = tk.Menu(menubar, tearoff=False)
         settings_menu.add_command(
             label="Flow metrics\u2026", command=lambda: self.response_view.show_metrics_dialog()
@@ -266,6 +275,7 @@ class StreamStudyApp:
         self.response_view = ResponseView(self.notebook, self)
         self.map_view = MapView(self.notebook, self)
         self.forecast_view = ForecastView(self.notebook, self)
+        self.flow_forecast_view = FlowForecastView(self.notebook, self)
         self.sites_view = SitesView(self.notebook, self)
         for view, label in (
             (self.home_view, "Overview"),
@@ -276,6 +286,7 @@ class StreamStudyApp:
             (self.response_view, "Rainfall \u2192 Flow"),
             (self.map_view, "Map & Correlation"),
             (self.forecast_view, "Forecast"),
+            (self.flow_forecast_view, "Flow forecast"),
             (self.sites_view, "Site finder"),
         ):
             self.notebook.add(view, text=label)
@@ -388,6 +399,17 @@ class StreamStudyApp:
         self.days_var.set(f"{self.days} days")
         if self.bundle is not None:
             self.load_site(self.bundle.site.number)
+
+    def show_report_dialog(self) -> None:
+        """Open the historical PDF report dialog (needs a loaded site)."""
+        if self.bundle is None:
+            messagebox.showinfo(
+                APP_NAME,
+                "Load a USGS site before generating a report.",
+                parent=self.root,
+            )
+            return
+        ReportDialog(self)
 
     def show_overview(self) -> None:
         self.notebook.select(self.home_view)
@@ -509,8 +531,15 @@ class StreamStudyApp:
         save_settings(self.settings, self.settings_path)
         self.response_view.render(self.bundle)
         self.temperature_view.render(self.bundle)
+        self.flow_forecast_view.render(self.bundle)
         fit = result.fit
-        if self.notebook.select() != str(self.map_view):
+        # Only narrate the fit on tabs that actually show the history; otherwise
+        # keep the "Loaded ... 4/4 sources" status from the site load.
+        if self.notebook.select() in (
+            str(self.response_view),
+            str(self.temperature_view),
+            str(self.flow_forecast_view),
+        ):
             if fit is not None:
                 self.set_status(
                     f"Rainfall response: {fit.events} storms \u00b7 {fit.slope:,.0f} cfs/in "
@@ -1105,6 +1134,7 @@ class StreamStudyApp:
             self.temperature_view,
             self.precip_view,
             self.forecast_view,
+            self.flow_forecast_view,
         ):
             view.render(bundle)
         self._update_source_dots(bundle)

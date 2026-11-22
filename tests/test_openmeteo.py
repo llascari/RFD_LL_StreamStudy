@@ -93,7 +93,8 @@ class ArchiveTest(unittest.TestCase):
         self.assertIn("archive-api.open-meteo.com", url)
         self.assertEqual(params["start_date"], "2024-01-01")
         self.assertEqual(params["end_date"], "2024-01-31")
-        self.assertEqual(params["daily"], "precipitation_sum")
+        self.assertIn("precipitation_sum", params["daily"])
+        self.assertIn("temperature_2m_mean", params["daily"])
 
 
 if __name__ == "__main__":

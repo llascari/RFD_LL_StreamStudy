@@ -65,7 +65,7 @@ def load_settings(path: str | Path | None = None) -> dict:
     data["store_flow_metrics"] = bool(data.get("store_flow_metrics", True))
     window = data.get("analysis_window")
     if not isinstance(window, dict) or window.get("mode") not in (
-        "1d", "7d", "30d", "90d", "1y", "2y", "5y", "custom"
+        "1d", "7d", "30d", "90d", "1y", "2y", "5y", "10y", "custom"
     ):
         data["analysis_window"] = dict(DEFAULTS["analysis_window"])
     metrics = data.get("flow_metrics")

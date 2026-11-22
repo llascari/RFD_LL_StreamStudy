@@ -94,6 +94,7 @@ class LoaderTest(unittest.TestCase):
         history = self.loader.load_history(site, years=3)
         self.assertTrue(history.precip)
         self.assertEqual(history.precip, tuple(sorted(history.precip)))
+        self.assertEqual(len(history.flow_daily), history.flow_days)
 
     def test_explicit_coco_station(self):
         bundle = self.loader.load(

@@ -44,6 +44,10 @@ polished marketing: the dead ends are included.
 | 16 | “Have the app check the repo for updates and tell the user; show how to update — and also how to revert or create their own variation.” | `updates.py` compares the git commit (or `VERSION` for ZIP copies) with GitHub; a footer banner and **Help → Check for updates…** dialog show copyable commands; `docs/UPDATING.md` covers update, revert and fork workflows. | `c47cef5` |
 | 17 | “I’m not seeing the flow metrics — where are they displayed and set?” | An always-visible metrics strip under the Rainfall → Flow cards plus a **Metrics…** dialog (and **Settings → Flow metrics…**) showing computed and stored values, the temperature threshold, the Remember toggle and save/clear actions. | `d8e3327` |
 | 18 | “Add settings to select a time window (start/stop, last X days/weeks/months) for the flow metrics and the time-above-temperature analysis.” | Shared `analysis_window.py` with presets (24 h → 5 y) and custom dates; flow history and water-temperature fetches follow the window; ResponseView gets a Window selector, TemperatureView a Window… dialog, and stored metrics record their window. | `db7ed9d` |
+| 19 | “Add a predicted flow and flow decay based on the weather forecast — no more than 10 days — with a confidence interval and evidence of past events.” | `forecast_scenario_horizon()` blends NWS QPF with Open-Meteo; `predict_horizon()` convolves rain with the fitted lag/recession into p10/p50/p90 curves; a tenth tab shows peak, rise, timing, confidence and the most similar storms. | `6182de9` + this round |
+| 20 | “Generate a report on a particular creek, using up to 10 years of history — detailed temperatures, extreme flows, graphs, maps, references, PDF.” | `report.py` computes flow/temperature summaries and extreme days; `pdf.py` is a ~160-line stdlib PDF writer; **File → Generate PDF report…** produces cover, flow, temperature and reference pages. | this round |
+| 21 | “Also generate it for the whole region by radius, with retries and resilience while showing progress and potential stalls.” | `loader.load_report_region()` searches USGS by bbox + haversine, loads each site with two retries, records failures and continues; `ReportDialog` shows a determinate progress bar, elapsed/stall hint, Cancel and Open report. | this round |
+| 22 | “Update the screenshots/docs — they look stale — and keep the how-this-was-made doc current.” | Regenerated all ten tabs from the live app, added a live report cover preview and `docs/REPORTS.md`, and updated README, AGENTS.md and CREDITS.md. | this round |
 
 The first two commits are a different app. That is fine: the prompt changed the domain, and the
 right move was to pivot rather than bolt features onto the wrong program.
@@ -66,6 +70,14 @@ right move was to pivot rather than bolt features onto the wrong program.
   renders. CoCoRaHS timeouts and 503s from USGS became warnings, not crashes.
 - **Write the caveats down.** “Depth is relative”, “heuristic, not a forecast”, “provisional data”
   are in the README, the UI and the About box.
+- **Write a handoff when the context fills.** A later agent picked up a written summary of the
+  unfinished forecast/report work. The handoff named the missing `report.py`, the absent
+  `flow_daily` field and the PDF encoding trap; the second agent fixed those instead of rebuilding
+  what was already green. A short `AGENTS.md`, a status note and a clean test baseline are cheaper
+  than re-deriving the state from a long transcript.
+- **Render the artifact, not just the code.** The PDF was checked with `pdftoppm` page by page.
+  That is how a clipped temperature note, an overlapping rain label and squeezed table columns were
+  found; none of them would have failed a unit test.
 
 ## What broke (and what we changed)
 
@@ -80,6 +92,10 @@ right move was to pivot rather than bolt features onto the wrong program.
 | Flow metrics “not visible” | only appended to one sentence and skipped when the rain scenario was zero | always-visible strip, explicit “no scenario” message, Metrics dialog |
 | Fixture refresh broke tests | assertions pinned to one recorded value | assert structure/ranges/ordering instead of magic numbers |
 | Fixed 24 h/7 d/30 d/1 y stats ignored the user's intent | hard-coded windows | one shared analysis window with presets and custom dates |
+| Flow forecast stayed on its placeholder | history finished after `apply_bundle`, and `_finish_history` re-rendered only Response and Temperature | re-render `flow_forecast_view` when history arrives |
+| PDF temperature note ran off the page | a long string was drawn with `page.text()` instead of the wrapper | use `_paragraph()` and inspect the rendered pages |
+| Flow forecast evidence table cut off dates | column widths exceeded the side panel | trimmed widths to fit without a horizontal scrollbar |
+| Reports had no air-temperature history | the ERA5 archive request only asked for precipitation | request daily mean/max/min temperature and sunshine, and treat the fields as optional |
 
 ## A prompt recipe you can copy
 
@@ -99,13 +115,15 @@ If you want to try this:
 
 ## By the numbers
 
-- **9 tabs**: Overview, Hydrograph, Sensors, Temperature, Precipitation, Rainfall → Flow,
-  Map & Correlation, Forecast, Site finder
+- **10 tabs**: Overview, Hydrograph, Sensors, Temperature, Precipitation, Rainfall → Flow,
+  Map & Correlation, Forecast, Flow forecast, Site finder
 - **5 data networks + 1 tile service**: USGS NWIS (IV/DV/site/OGC), NWS `api.weather.gov`,
   Open-Meteo forecast/archive, CoCoRaHS CSV export, Monitor My Watershed ODM2, OpenStreetMap
-- **142 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
-- **Zero third-party runtime dependencies** — Tk charts, `urllib`, `tk.PhotoImage` for map tiles
-- **~9,800 lines** of Python including tests, **18 commits** at the time of writing
+- **2 output formats**: the live Tk UI and a multi-page PDF (single gage or radius region)
+- **167 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
+- **Zero third-party runtime dependencies** — Tk charts, `urllib`, `tk.PhotoImage` for map tiles,
+  and a hand-written PDF 1.4 writer
+- **~13,500 lines** of Python including tests, **26 commits** at the time of writing
 
 ## Credit
 

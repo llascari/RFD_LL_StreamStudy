@@ -317,6 +317,141 @@ def forecast_scenario(
     return modelled, "Open-Meteo"
 
 
+def forecast_scenario_horizon(
+    bundle: DataBundle, now: datetime | None = None, hours: int = 240
+) -> tuple[Scenario, str]:
+    """Forecast rain for up to 10 days, preferring the official NWS QPF.
+
+    NWS QPF covers roughly a week; Open-Meteo hourly precipitation fills the
+    rest of the horizon (and is used alone when QPF is missing or dry).
+    """
+    now = now or utc_now()
+    limit = now + timedelta(hours=hours)
+    official = [
+        (moment, value)
+        for moment, value in bundle.nws_qpf
+        if now - timedelta(hours=6) <= moment <= limit and value > 0
+    ]
+    modelled = [
+        (moment, mm_to_inches(millimetres))
+        for moment, millimetres, _probability in bundle.openmeteo_hourly
+        if now - timedelta(hours=1) <= moment <= limit and millimetres > 0
+    ]
+    if official:
+        end_official = max(moment for moment, _value in official)
+        tail = [(moment, value) for moment, value in modelled if moment > end_official]
+        increments = official + tail
+        source = "NWS QPF" + (" + Open-Meteo" if tail else "")
+    else:
+        increments = modelled
+        source = "Open-Meteo" if modelled else "none"
+    return Scenario(tuple(increments), sum(value for _moment, value in increments)), source
+
+
+def predict_horizon(
+    scenario: Scenario,
+    fit: ResponseFit | None,
+    events: tuple[FlowEvent, ...],
+    *,
+    current_cfs: float,
+    baseflow_cfs: float,
+    now: datetime | None = None,
+    horizon_days: int = 10,
+    source: str = "",
+    step_hours: float = 3.0,
+) -> Prediction | None:
+    """Convolve the forecast hyetograph with an empirical response shape.
+
+    Each rain increment produces a smooth rise peaking ``lag`` hours later and
+    an exponential recession with the fitted half-life. The sum is a 10-day
+    hydrograph; the 10/50/90 ratios give the confidence band.
+    """
+    now = now or utc_now()
+    if fit is None or not scenario.increments or scenario.total_in <= 0.005:
+        return None
+    end = now + timedelta(days=max(1, int(horizon_days)))
+    base = max(0.0, baseflow_cfs)
+    current = max(float(current_cfs), base)
+    lag_hours = max(1.0, fit.lag_p50_hours)
+    half_hours = max(2.0, fit.half_life_days * 24.0)
+
+    def shape(hours_since_rain: float) -> float:
+        if hours_since_rain <= 0:
+            return 0.0
+        if hours_since_rain < lag_hours:
+            fraction = hours_since_rain / lag_hours
+            return fraction * fraction * (3.0 - 2.0 * fraction)
+        return 0.5 ** ((hours_since_rain - lag_hours) / half_hours)
+
+    increments = scenario.increments
+
+    def curve_for(ratio: float) -> tuple[float, tuple[tuple[datetime, float], ...]]:
+        points: list[tuple[datetime, float]] = []
+        moment = now
+        peak = 0.0
+        while moment <= end:
+            baseline = base + (current - base) * 0.5 ** (
+                max(0.0, (moment - now).total_seconds() / 3600.0) / half_hours
+            )
+            response = sum(
+                ratio * inches * shape((moment - rain_time).total_seconds() / 3600.0)
+                for rain_time, inches in increments
+                if rain_time <= moment
+            )
+            value = baseline + response
+            points.append((moment, value))
+            peak = max(peak, value)
+            moment += timedelta(hours=step_hours)
+        return peak, tuple(points)
+
+    peak, curve = curve_for(fit.ratio_p50)
+    low_peak, low_curve = curve_for(fit.ratio_p10)
+    high_peak, high_curve = curve_for(fit.ratio_p90)
+    peak_time = max(curve, key=lambda point: point[1])[0]
+
+    rise = max(0.0, peak - current)
+    rise_pct_base = 100.0 * rise / base if base > 0 else 0.0
+    rise_pct_peak = 100.0 * rise / peak if peak > 0 else 0.0
+    after_peak = [value for moment, value in curve if moment >= peak_time + timedelta(hours=24)]
+    flow_24h = after_peak[0] if after_peak else curve[-1][1]
+    storm_flow = max(1e-9, peak - base)
+    decay_24h_pct = 100.0 * max(0.0, peak - flow_24h) / storm_flow
+
+    similar = tuple(
+        sorted(
+            (
+                event
+                for event in events
+                if event.rain_in > 0
+                and abs(event.rain_in - scenario.total_in)
+                <= max(0.10, 0.35 * scenario.total_in)
+            ),
+            key=lambda event: event.start,
+            reverse=True,
+        )[:8]
+    )
+    return Prediction(
+        rain_in=scenario.total_in,
+        current_cfs=current,
+        baseflow_cfs=base,
+        peak_cfs=peak,
+        low_peak_cfs=low_peak,
+        high_peak_cfs=high_peak,
+        rise_cfs=rise,
+        rise_pct_base=rise_pct_base,
+        rise_pct_peak=rise_pct_peak,
+        decay_24h_pct=decay_24h_pct,
+        peak_time=peak_time,
+        half_life_days=fit.half_life_days,
+        curve=curve,
+        low_curve=low_curve,
+        high_curve=high_curve,
+        confidence=fit.confidence,
+        source=source,
+        similar=similar,
+    )
+
+
 def scale_scenario(scenario: Scenario, total_in: float) -> Scenario:
     """Re-scale a scenario to a user-supplied total, preserving storm timing."""
     if scenario.total_in <= 0:

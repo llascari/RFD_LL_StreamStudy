@@ -177,6 +177,9 @@ works.
 - **The map needs internet** for OpenStreetMap tiles. If tiles are blocked, the gage positions are
   still shown on a plain grid and remain clickable.
 - **No account or key is required.** All sources are public.
+- **Making a PDF report:** **File → Generate PDF report…** builds a historical report for the
+  loaded creek, or every creek within a radius. It needs no extra packages; a region report can
+  take a few minutes. See [docs/REPORTS.md](docs/REPORTS.md).
 
 ---
 
@@ -251,8 +254,10 @@ Still stuck? Open an issue at
 - **Rainfall → Flow** — historical storms vs flow response, plus a forecast scenario
 - **Map & Correlation** — clickable gages, drag to pan, scroll to zoom, cross-correlations
 - **Forecast** — NWS forecast text, QPF bars and precipitation probability
+- **Flow forecast** — a 10-day predicted hydrograph, confidence band and similar past storms
 - **Site finder** — find gages by state, distance or station name, and **Rank by data value**
   to suggest the best nearby hub
+- **File → Generate PDF report…** — historical PDF for one gage or a radius of nearby gages
 
 Use **Settings → Reset settings to defaults…** in the menu bar to restore every preference
 (threshold, remembered metrics, recent sites) while keeping the current gage loaded.

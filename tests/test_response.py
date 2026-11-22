@@ -2,6 +2,7 @@ import math
 import unittest
 from datetime import date, datetime, timedelta, timezone
 
+from streamstudy.models import DataBundle, Site
 from streamstudy.response import (
     Scenario,
     analyse_history,
@@ -9,8 +10,10 @@ from streamstudy.response import (
     detect_events,
     fit_response,
     forecast_scenario,
+    forecast_scenario_horizon,
     percentile,
     predict,
+    predict_horizon,
     scale_scenario,
 )
 
@@ -104,6 +107,94 @@ class ScenarioTest(unittest.TestCase):
         scenario = Scenario(((now, 1.0), (now + timedelta(hours=10), 1.0)), 2.0)
         self.assertAlmostEqual(
             scenario.centroid().timestamp(), (now + timedelta(hours=5)).timestamp(), delta=1
+        )
+
+
+class HorizonForecastTest(unittest.TestCase):
+    def setUp(self):
+        flow, precip = synthetic_history()
+        self.events, self.fit = analyse_history(flow, precip)
+        self.now = datetime(2026, 11, 20, 0, tzinfo=timezone.utc)
+
+    def test_qpf_is_extended_with_modelled_rain(self):
+        qpf = (
+            (self.now + timedelta(hours=6), 0.2),
+            (self.now + timedelta(hours=30), 0.3),
+        )
+        hourly = (
+            (self.now + timedelta(hours=10), 5.0, 50),
+            (self.now + timedelta(hours=30), 2.0, 40),
+            (self.now + timedelta(hours=100), 12.7, 30),
+        )
+        bundle = DataBundle(
+            site=Site(number="1", name="TEST", latitude=43.0, longitude=-77.0),
+            nws_qpf=qpf,
+            openmeteo_hourly=hourly,
+        )
+        scenario, source = forecast_scenario_horizon(bundle, now=self.now)
+        self.assertEqual(source, "NWS QPF + Open-Meteo")
+        self.assertAlmostEqual(scenario.total_in, 0.5 + 12.7 / 25.4, delta=0.01)
+        self.assertTrue(
+            any(moment > self.now + timedelta(hours=30) for moment, _ in scenario.increments)
+        )
+
+    def test_open_meteo_only_when_qpf_is_dry(self):
+        bundle = DataBundle(
+            site=Site(number="1", name="TEST", latitude=43.0, longitude=-77.0),
+            openmeteo_hourly=((self.now + timedelta(hours=5), 10.0, 60),),
+        )
+        scenario, source = forecast_scenario_horizon(bundle, now=self.now)
+        self.assertEqual(source, "Open-Meteo")
+        self.assertAlmostEqual(scenario.total_in, 10.0 / 25.4, delta=0.01)
+
+    def test_horizon_prediction_has_bands_and_evidence(self):
+        scenario = Scenario(
+            (
+                (self.now + timedelta(hours=12), 0.5),
+                (self.now + timedelta(hours=60), 0.5),
+            ),
+            1.0,
+        )
+        prediction = predict_horizon(
+            scenario,
+            self.fit,
+            tuple(self.events),
+            current_cfs=50.0,
+            baseflow_cfs=45.0,
+            now=self.now,
+            horizon_days=10,
+            source="test",
+        )
+        self.assertIsNotNone(prediction)
+        self.assertEqual(len(prediction.curve), 81)
+        self.assertLessEqual(prediction.low_peak_cfs, prediction.peak_cfs)
+        self.assertGreaterEqual(prediction.high_peak_cfs, prediction.peak_cfs)
+        self.assertGreater(prediction.peak_cfs, 50.0)
+        self.assertGreater(prediction.rise_pct_base, 0.0)
+        self.assertGreaterEqual(prediction.decay_24h_pct, 0.0)
+        self.assertLessEqual(prediction.decay_24h_pct, 100.0)
+        self.assertLessEqual(
+            max(moment for moment, _value in prediction.curve),
+            self.now + timedelta(days=10),
+        )
+        self.assertGreater(prediction.peak_time, self.now)
+        self.assertTrue(prediction.similar)
+        for event in prediction.similar:
+            self.assertLessEqual(
+                abs(event.rain_in - prediction.rain_in),
+                max(0.10, 0.35 * prediction.rain_in),
+            )
+
+    def test_no_rain_or_fit_gives_no_prediction(self):
+        empty = Scenario((), 0.0)
+        self.assertIsNone(
+            predict_horizon(empty, self.fit, (), current_cfs=50.0, baseflow_cfs=50.0)
+        )
+        scenario = Scenario(((self.now, 1.0),), 1.0)
+        self.assertIsNone(
+            predict_horizon(
+                scenario, None, (), current_cfs=50.0, baseflow_cfs=50.0
+            )
         )
 
 

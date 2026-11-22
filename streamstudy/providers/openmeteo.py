@@ -103,6 +103,8 @@ def parse_weather_payload(payload: dict) -> WeatherData:
 class ArchiveData:
     daily: tuple[tuple[date, float], ...]  # local day, mm
     timezone: str
+    # Daily air temperature / sunshine when the caller asked for them.
+    weather: tuple[WeatherDay, ...] = ()
 
 
 def parse_archive_payload(payload: dict) -> ArchiveData:
@@ -110,12 +112,44 @@ def parse_archive_payload(payload: dict) -> ArchiveData:
     section = payload.get("daily", {}) or {}
     days = section.get("time", []) or []
     totals = section.get("precipitation_sum", []) or []
+    means = section.get("temperature_2m_mean", []) or []
+    maxima = section.get("temperature_2m_max", []) or []
+    minima = section.get("temperature_2m_min", []) or []
+    sunshine = section.get("sunshine_duration", []) or []
+
+    def pick(values, index):
+        return (
+            float(values[index])
+            if index < len(values) and values[index] is not None
+            else None
+        )
+
     daily: list[tuple[date, float]] = []
+    weather: list[WeatherDay] = []
     for index, stamp in enumerate(days):
         day = datetime.fromtimestamp(int(stamp) + offset, tz=timezone.utc).date()
         total = totals[index] if index < len(totals) else 0.0
         daily.append((day, float(total or 0.0)))
-    return ArchiveData(daily=tuple(daily), timezone=payload.get("timezone", "") or "")
+        if means or maxima or minima or sunshine:
+            sunshine_seconds = pick(sunshine, index)
+            weather.append(
+                WeatherDay(
+                    day=day,
+                    mean_c=pick(means, index),
+                    max_c=pick(maxima, index),
+                    min_c=pick(minima, index),
+                    sunshine_hours=(
+                        sunshine_seconds / 3600.0
+                        if sunshine_seconds is not None
+                        else None
+                    ),
+                )
+            )
+    return ArchiveData(
+        daily=tuple(daily),
+        timezone=payload.get("timezone", "") or "",
+        weather=tuple(weather),
+    )
 
 
 class OpenMeteoProvider:
@@ -184,7 +218,10 @@ class OpenMeteoProvider:
                 "longitude": f"{longitude:.4f}",
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
-                "daily": "precipitation_sum",
+                "daily": (
+                    "precipitation_sum,temperature_2m_mean,temperature_2m_max,"
+                    "temperature_2m_min,sunshine_duration"
+                ),
                 "timezone": "auto",
                 "timeformat": "unixtime",
             },

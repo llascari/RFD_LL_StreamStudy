@@ -37,7 +37,13 @@ feeds them**.
 | --- | --- |
 | ![Forecast tab](docs/forecast.png) | ![Map and correlation tab](docs/map.png) |
 
-![Site finder](docs/sites.png)
+| Flow forecast (10 days) | Site finder |
+| --- | --- |
+| ![Flow forecast tab](docs/flow_forecast.png) | ![Site finder](docs/sites.png) |
+
+| Historical PDF report |
+| --- |
+| ![First page of a StreamStudy PDF report](docs/report_cover.png) |
 
 ## Features
 
@@ -48,7 +54,7 @@ feeds them**.
   daily-mean correlations against the USGS gage
 - **Temperature** — water vs air temperature, daily sunshine and clear-day counts, water↔air and
   water↔sunshine correlations, and **time above a settable threshold** for a **selectable analysis
-  window** (24 h / 7 d / 30 d / 90 d / 1 y / 2 y / 5 y or custom dates)
+  window** (24 h / 7 d / 30 d / 90 d / 1 y / 2 y / 5 y / 10 y or custom dates)
 - **Precipitation comparison** — daily bars and a table comparing up to four sources:
   on-site USGS precipitation (parameter `00045` where available), the nearest CoCoRaHS volunteer
   gauge, Open-Meteo's gridded model, and NWS ASOS observations
@@ -65,6 +71,15 @@ feeds them**.
   stream with ERA5, the CoCoRaHS gauge and any on-site USGS rain gauge
 - **Forecast** — NWS daily periods with full discussion text, plus the NWS gridpoint
   **quantitative precipitation forecast** (6-hourly bars) and peak precipitation probability
+- **Flow forecast** — a 10-day predicted hydrograph built from forecast rain (NWS QPF first,
+  Open-Meteo for the rest of the horizon), the fitted lag/recession, a 10–90 % band from the
+  historical rise-per-inch ratios, a confidence assessment, and a table of comparable past storms
+- **Historical PDF reports** — **File → Generate PDF report…** writes a multi-page report for the
+  loaded creek or every creek within a chosen radius (up to 12 sites), using up to **10 years** of
+  daily flow and temperature: hydrographs, rainfall, temperature statistics and threshold duration,
+  highest/lowest flow days, storm evidence, a schematic locator map, sources and limitations.
+  Long region jobs run in the background with per-site retries, a live progress bar, a stall hint
+  and a Cancel button. See **[docs/REPORTS.md](docs/REPORTS.md)**.
 - **Site finder** — search active USGS surface-water gages by state, within ~50 km of the
   loaded site, or by **station name** (USGS OGC API); **Rank by data value** scores nearby gages
   (model fit, peer correlation, water temperature, proximity) and suggests a central hub
@@ -96,6 +111,45 @@ You can override the forecast total with any what-if amount in the tab. The mode
 account for soil moisture, snowmelt, seasonality, or upstream routing, and it works at daily
 resolution — the band is the honest expression of that. Treat it as a screening tool and a way to
 see how this particular stream has behaved, not as a flood forecast.
+
+## 10-day flow forecast
+
+The **Flow forecast** tab answers the practical question: *if the forecast rain arrives, when
+would this creek rise, how high, and how fast would it fall?*
+
+1. Build a 10-day rain hyetograph, preferring **NWS QPF** and filling the remainder of the horizon
+   with **Open-Meteo** hourly precipitation.
+2. Convolve each rain increment with the empirical response shape from the historical fit: a
+   smooth rise peaking at the median lag, then an exponential recession at the fitted half-life.
+3. Draw the 10th/50th/90th percentile curves from the historical rise-per-inch ratios, so the band
+   reflects how variable this particular stream has been.
+4. Show a confidence label (from r² and storm count), the predicted rise as a percentage of
+   baseflow and of peak storm flow, the 24 h decay, and a table of the most similar past storms.
+
+The horizon is capped at 10 days because that is roughly where public weather forecasts stop
+being useful. The band is wide when the history is noisy, and that is the point: it is a screening
+estimate, not a flood forecast.
+
+## Historical PDF reports
+
+Choose **File → Generate PDF report…** to produce a shareable PDF for the loaded gage. You pick a
+preset or custom history window (up to 10 years), the water-temperature threshold, and optionally
+a radius; with a radius, every active USGS discharge gage inside it becomes its own section
+(maximum 12 sites). The report contains:
+
+- a cover with the site, window, sources, a warning and a schematic locator map;
+- a **flow** page: hydrograph with daily rain, distribution, mean/median/min/max, and the highest
+  and lowest daily flows with their dates;
+- a **temperature** page: daily water (USGS) and air (ERA5) temperatures, threshold line, days and
+  hours above the threshold, longest warm run, warmest/coldest days, sunshine, and the fitted
+  rainfall-runoff response with the largest storms;
+- a **region** table and one flow + temperature section per nearby creek;
+- **sources, methods, health warnings and reproduction steps**.
+
+The PDF writer is ~160 lines of standard-library code (Helvetica, vector charts, no images), so
+there is nothing extra to install. Region reports fetch one USGS daily-values request and one
+ERA5 request per site; each site gets two retries, failures are listed instead of aborting the run,
+and the dialog shows progress, elapsed time, a stall hint after 20 s without new data, and Cancel.
 
 ## Regional map and cross-correlation
 
@@ -132,7 +186,7 @@ Everything comes from documented, structured APIs — no HTML scraping:
 | **USGS Water Data** | `api.waterdata.usgs.gov/ogcapi/v0/…` | Station **name search** (`monitoring-locations` with a CQL2 `LIKE` filter), plus the newer API generally | none |
 | **NWS** | `api.weather.gov/points/…`, `/gridpoints/…`, `/stations/…/observations` | Nearest ASOS observations, daily/hourly forecast, gridpoint QPF | none (User-Agent required) |
 | **Open-Meteo** | `api.open-meteo.com/v1/forecast` | Hourly precipitation + probability; **daily air temperature, sunshine duration, cloud cover and radiation** | none |
-| **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse; regional rain series) | none |
+| **Open-Meteo** | `archive-api.open-meteo.com/v1/archive` | **ERA5 daily precipitation history** (fallback when the gauge record is sparse; regional rain series) plus **daily air temperature and sunshine** for historical reports | none |
 | **OpenStreetMap** | `tile.openstreetmap.org/{z}/{x}/{y}.png` | Basemap tiles for the map tab (6–24 tiles per view, cached in memory) | none; attribution required |
 | **CoCoRaHS** | `data.cocorahs.org/cocorahs/export/exportreports.aspx` | Volunteer 24-hour gauge reports: recent comparison, nearest-gauge search, and multi-year history | none |
 | **Monitor My Watershed** | `monitormywatershed.org/browse/` (site JSON) + `/dataloader/ajax/` (ODM2 result series) | Nearby EnviroDIY sensors: water temperature, **relative** water depth, conductance | none |
@@ -279,15 +333,20 @@ provider API ──► parse_*() ──► models (Site, Series, FlowEvent, Resp
                 StreamStudyApp (worker thread → queue → Tk main thread)
                                    │
   HomeView · HydroView · SensorsView · TemperatureView · PrecipView ·
-  ResponseView · MapView · ForecastView · SitesView
+  ResponseView · MapView · ForecastView · FlowForecastView · SitesView
+                                   │
+          report.py ──► pdf.py (stdlib PDF writer)
 ```
 
 - **`providers/`** — one module per network. Parsing functions are pure and unit tested against
   recorded API responses (`tests/fixtures/`).
 - **`loader.py`** — assembles a `DataBundle` (and the separate historical `HistoryBundle`);
   partial failures are collected in `errors` rather than aborting.
-- **`response.py`** — baseflow separation, storm detection, response fit, scenario building and
-  hydrograph prediction. Pure functions, no I/O, heavily unit tested.
+- **`response.py`** — baseflow separation, storm detection, response fit, scenario building,
+  48 h what-if prediction and the 10-day forecast convolution. Pure functions, no I/O, heavily
+  unit tested.
+- **`report.py` + `pdf.py`** — historical statistics, extreme-day selection and a dependency-free
+  multi-page PDF renderer (cover, charts, locator map, per-site pages, references).
 - **`analysis.py`** — daily aggregation, unit conversions, medians/trends, "nice" axis steps.
 - **`ui/charts.py`** — canvas chart widgets (time series lines/bars, log axis, hover readout,
   and a scatter plot with fitted line) so the app stays dependency-free.
@@ -302,21 +361,23 @@ RFD_LL_StreamStudy/
 │   ├── app.py             # window, header, background loading, history orchestration
 │   ├── loader.py          # per-source fetch orchestration + history analysis
 │   ├── models.py          # Site, Series, FlowEvent, ResponseFit, DataBundle…
-│   ├── response.py        # rainfall-runoff model: baseflow, storms, fit, prediction
+│   ├── response.py        # rainfall-runoff model: baseflow, storms, fit, 10-day prediction
 │   ├── correlation.py     # lagged cross-correlation of regional flows and rain
 │   ├── temperature_stats.py # hours above a threshold, clear-day counts
 │   ├── ranking.py         # "best nearby gage" scoring and hub suggestion
 │   ├── updates.py         # GitHub commit/VERSION update check
 │   ├── analysis_window.py # shared preset/custom analysis window
+│   ├── report.py          # historical report statistics + page composition
+│   ├── pdf.py             # tiny stdlib PDF 1.4 writer (text, lines, rects, curves)
 │   ├── analysis.py        # aggregation and formatting helpers
 │   ├── http.py            # cached, retrying urllib client
 │   ├── settings.py        # JSON settings (recent sites, analysis window, map)
 │   ├── providers/         # usgs · nws · openmeteo · cocorahs · monitormywatershed
-│   └── ui/                # theme, charts, widgets and nine tab views (incl. map_view)
+│   └── ui/                # theme, charts, widgets, ten tab views, map_view, report_dialog
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 142 tests (providers, models, correlation, temperature, ranking, updates, Tk)
-├── docs/                  # screenshots, HOW_THIS_WAS_MADE.md, UPDATING.md
+│   └── test_*.py          # 167 tests (providers, models, forecast, report/PDF, region loader, Tk)
+├── docs/                  # screenshots, HOW_THIS_WAS_MADE.md, REPORTS.md, UPDATING.md
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── VERSION                # human-readable release version used by the update check
 ├── pyproject.toml
@@ -338,7 +399,9 @@ xvfb-run -a python -m unittest discover -s tests -t . -v
 The GUI tests skip themselves automatically when no display is available, so the suite also runs
 in plain CI containers. Provider fixtures were captured from the live APIs and trimmed; the
 response model is tested on synthetic storm series where the true response (150 cfs/in, 24 h lag,
-1.5-day half-life) is known.
+1.5-day half-life) is known. The forecast convolution is checked for horizon length, band ordering
+and analog selection; the PDF is checked for valid header/footer, page count and site text; the
+region loader is tested for radius filtering, retries, partial failure, progress and cancellation.
 
 ## Credits and how this was made
 
