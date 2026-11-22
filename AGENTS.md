@@ -126,7 +126,9 @@ make test / make gui-test / make run       # same, if you like make
   with a CQL2 text filter. Station names are upper-case and `LIKE` is case-sensitive, so the term
   is normalised; the state filter needs the numeric FIPS code, and `site_type` defaults to `Stream`.
 - **Charts** — `ui/charts.py`: `ChartCanvas` (time lines/bars, log axis, hover) and
-  `ScatterChart`. Keep them dependency-free; redraw on `<Configure>`.
+  `ScatterChart`. Keep them dependency-free; redraw on `<Configure>`. Canvas text accepts
+  font/fill/anchor, not Text-widget options such as `spacing1`; a rejected option draws the
+  tooltip box but silently skips the label. `test_chart_hover_tooltip_draws_text` guards this.
 
 ## Data-source gotchas
 

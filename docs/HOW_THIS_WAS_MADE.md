@@ -97,6 +97,7 @@ right move was to pivot rather than bolt features onto the wrong program.
 | Flow forecast evidence table cut off dates | column widths exceeded the side panel | trimmed widths to fit without a horizontal scrollbar |
 | Reports had no air-temperature history | the ERA5 archive request only asked for precipitation | request daily mean/max/min temperature and sunshine, and treat the fields as optional |
 | Report dialog sat on “Starting…” | the idle poll loop stopped scheduling `after` before Generate was pressed | start polling in `_start`, then add a live elapsed timer, spinner and per-source stage messages |
+| Chart hover showed an empty grey box | the canvas text item was given `spacing1`, a Text-widget-only option, so Tk raised and skipped the label | remove the option; assert the tooltip text in a Tk test and render it once |
 
 ## A prompt recipe you can copy
 
@@ -121,10 +122,10 @@ If you want to try this:
 - **5 data networks + 1 tile service**: USGS NWIS (IV/DV/site/OGC), NWS `api.weather.gov`,
   Open-Meteo forecast/archive, CoCoRaHS CSV export, Monitor My Watershed ODM2, OpenStreetMap
 - **2 output formats**: the live Tk UI and a multi-page PDF (single gage or radius region)
-- **170 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
+- **171 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
 - **Zero third-party runtime dependencies** — Tk charts, `urllib`, `tk.PhotoImage` for map tiles,
   and a hand-written PDF 1.4 writer
-- **~13,600 lines** of Python including tests, **29 commits** at the time of writing
+- **~13,600 lines** of Python including tests, **30 commits** at the time of writing
 
 ## Credit
 

@@ -322,7 +322,6 @@ class ChartCanvas(tk.Canvas):
             anchor="nw",
             fill=TEXT,
             font=font,
-            spacing1=1,
         )
 
 

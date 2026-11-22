@@ -377,7 +377,7 @@ RFD_LL_StreamStudy/
 │   └── ui/                # theme, charts, widgets, ten tab views, map_view, report_dialog
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 170 tests (providers, models, forecast, report/PDF, region loader, Tk)
+│   └── test_*.py          # 171 tests (providers, models, forecast, report/PDF, region loader, Tk)
 ├── docs/                  # screenshots, HOW_THIS_WAS_MADE.md, REPORTS.md, UPDATING.md
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── VERSION                # human-readable release version used by the update check

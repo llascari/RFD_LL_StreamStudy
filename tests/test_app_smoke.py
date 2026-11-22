@@ -158,6 +158,27 @@ class AppSmokeTest(unittest.TestCase):
         self.app.hydro_view.discharge_chart.redraw()
         self.assertGreater(len(self.app.hydro_view.discharge_chart.find_all()), 0)
 
+    def test_chart_hover_tooltip_draws_text(self):
+        from datetime import datetime, timezone
+
+        from streamstudy.ui.theme import font_family
+
+        chart = self.app.hydro_view.discharge_chart
+        chart._draw_tooltip(
+            datetime.now(timezone.utc),
+            [("Observed", 73.0), ("Predicted", 90.0)],
+            120,
+            20,
+            800,
+            font_family(self.root),
+        )
+        texts = [
+            item for item in chart.find_all() if chart.type(item) == "text"
+        ]
+        rendered = "\n".join(chart.itemcget(item, "text") for item in texts)
+        self.assertIn("Observed: 73.00", rendered)
+        self.assertIn("Predicted: 90.00", rendered)
+
     def test_async_load_round_trip(self):
         self.app.bundle = None
         self.app.load_site("0423205010")
