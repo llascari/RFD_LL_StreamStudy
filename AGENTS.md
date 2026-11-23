@@ -108,11 +108,12 @@ make test / make gui-test / make run       # same, if you like make
   air temperature and sunshine at lags −5..+5, in two bases: absolute values and **rise over
   normal** (each series minus its centred 15-day rolling mean; anomaly fits isolate day-to-day
   drivers instead of the seasonal cycle). A positive lag means water follows the driver.
-  `ui/thermal_view.py` shows USGS/MMW source choices, a Basis selector, signed scatters and the
-  lag table; **Compare nearby…** uses `loader.load_thermal_peers` (one USGS 00010 request per
-  neighbour, shared regional drivers) and ranks streams via `thermal.sunlight_peers` sunshine
-  slope (°C per sunshine-hour above normal); the PDF thermal page adds the same region comparison.
-  MMW is recent-only; `series_water_c` converts °F sensors.
+  `thermal.joint_anomaly_fit` regresses water anomalies on air and sunshine **jointly** (lag grid
+  0–5 per driver) so each slope holds the other constant; the view shows it in a split strip and
+  `thermal.sunlight_peers` ranks nearby streams by the held-constant sunshine slope
+  (`loader.load_thermal_peers`: one USGS 00010 request per neighbour, shared regional drivers).
+  The PDF thermal page has the same split table and region comparison. MMW is recent-only;
+  `series_water_c` converts °F sensors.
 - **Temperature** — `temperature_stats.py` integrates hours above a threshold from IV samples
   (gap capped at 2 h) inside the shared analysis window and uses daily means for long windows;
   `ui/temperature_view.py` also correlates

@@ -161,13 +161,21 @@ mean before fitting. The cards then show the **slope**: how many °C of water ri
 than the seasonal cycle. Short windows have little room between the rolling normal and the data,
 so treat anomaly results there as screening only.
 
+### Sun vs air, all else equal
+
+Sunshine and air temperature travel together, so a plain correlation cannot tell you which one
+is doing the driving. Below the cards, the **driver split** regresses water-temperature anomalies
+on air and sunshine anomalies **jointly** (lag grid 0–5 days for each driver, best R² wins). Each
+slope is then one driver's effect with the other held constant: *sun +1 h → water +x °C, air
+constant* and *air +1 °C → water +y °C, sun constant*, each with a partial correlation.
+
 ### Compare nearby…
 
-**Compare nearby…** in the Temp Drivers tab asks the cross-stream question: given the same
-regional air and sunshine, which creek's water temperature responds most to sunshine? It fetches
-daily water temperature for the nearest USGS gages (about 0.5° bbox, up to six), fits each stream
-the same way, and ranks them by °C of water rise per sunshine-hour above normal, strongest first,
-alongside each stream's sunshine and air anomaly correlations.
+**Compare nearby…** in the Temp Drivers tab asks the cross-stream question: for roughly the same
+sun exposure, which creek responds most? It fetches daily water temperature for the nearest USGS
+gages (about 0.5° bbox, up to six), gives every stream the same joint anomaly regression, and
+ranks them by the **held-constant sunshine slope** (°C of water rise per sunshine-hour above
+normal, air constant), strongest first, with the partial correlations alongside.
 
 ## Historical PDF reports
 
@@ -183,8 +191,9 @@ a radius; with a radius, every active USGS discharge gage inside it becomes its 
   hours above the threshold, longest warm run, warmest/coldest days, sunshine, and the fitted
   rainfall-runoff response with the largest storms;
 - a **temperature-correlation** page: air/sunshine vs water at lags −5 to +5 days (absolute and
-  rise-over-normal), signed scatter plots and a summary for every USGS and Monitor My Watershed
-  water source, plus a sunlight-sensitivity ranking of the region's streams when a radius was set;
+  rise-over-normal), a **driver split** (joint regression: each driver's slope with the other held
+  constant), signed scatter plots and a summary for every USGS and Monitor My Watershed water
+  source, plus a sunlight-sensitivity ranking of the region's streams when a radius was set;
 - a **region** table and one flow + temperature section per nearby creek;
 - **sources, methods, health warnings and reproduction steps**.
 

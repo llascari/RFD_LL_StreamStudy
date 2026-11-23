@@ -23,6 +23,7 @@ from .thermal import (
     DriverFit,
     WaterSource,
     build_thermal_analysis,
+    joint_anomaly_fit,
     sunlight_peers,
 )
 
@@ -1214,6 +1215,57 @@ def _thermal_page(
         )
         y += 16
 
+    if analyses:
+        y += 6
+        y = _heading(
+            page,
+            y,
+            "Driver split (rise over normal, each driver holding the other)",
+            size=10,
+        )
+        split_rows = []
+        for source, analysis in analyses:
+            joint = joint_anomaly_fit(
+                source.daily,
+                site_report.air_mean,
+                site_report.sunshine,
+                max_lag=5,
+                min_pairs=5,
+            )
+            if joint is None:
+                split_rows.append([source.label[:34], "\u2014", "\u2014", "\u2014", "\u2014", "\u2014", "\u2014"])
+                continue
+            split_rows.append(
+                [
+                    source.label[:34],
+                    f"{joint.air_slope:+.2f}" if joint.air_slope is not None else "\u2014",
+                    f"{joint.sun_slope:+.2f}" if joint.sun_slope is not None else "\u2014",
+                    f"{joint.sun_partial_r:+.2f}" if joint.sun_partial_r is not None else "\u2014",
+                    f"{joint.air_partial_r:+.2f}" if joint.air_partial_r is not None else "\u2014",
+                    f"{joint.r_squared:.2f}" if joint.r_squared is not None else "\u2014",
+                    f"+{joint.air_lag}/+{joint.sun_lag}",
+                ]
+            )
+        y = _table(
+            page,
+            MARGIN,
+            y,
+            [148, 62, 70, 58, 58, 40, 72],
+            ["Water source", "Air \u00b0C/\u00b0C", "Sun \u00b0C/h", "Sun pr", "Air pr", "R\u00b2", "Lag a/s"],
+            split_rows,
+            size=7.5,
+            row_h=12,
+        )
+        page.text(
+            MARGIN,
+            y + 4,
+            "Sun pr / Air pr are partial correlations: the driver's correlation with water rise "
+            "once the other driver's share is removed.",
+            size=7.5,
+            colour=MUTED,
+        )
+        y += 20
+
     if primary is not None:
         y += 4
         y = _heading(page, y, "Correlation by lag", size=10)
@@ -1342,22 +1394,26 @@ def _sunlight_comparison(
                 peer.site_number,
                 name,
                 f"{peer.distance_km:.0f}",
-                f"{peer.sun_r:+.2f}" if peer.sun_r is not None else "n/a",
-                f"{peer.air_r:+.2f}" if peer.air_r is not None else "n/a",
                 (
                     f"{peer.slope_c_per_hour:+.2f}"
                     if peer.slope_c_per_hour is not None
                     else "n/a"
                 ),
-                f"{peer.lag_days:+d}" if peer.lag_days is not None else "n/a",
+                f"{peer.sun_r:+.2f}" if peer.sun_r is not None else "n/a",
+                f"{peer.air_r:+.2f}" if peer.air_r is not None else "n/a",
+                (
+                    f"+{peer.air_lag_days:+d}/+{peer.sun_lag_days:+d}"
+                    if peer.air_lag_days is not None and peer.sun_lag_days is not None
+                    else "n/a"
+                ),
             ]
         )
     y = _table(
         page,
         MARGIN,
         y,
-        [66, 148, 40, 48, 48, 64, 46],
-        ["Site", "Name", "km", "Sun r", "Air r", "C/sun-h", "Lag d"],
+        [66, 148, 40, 64, 52, 52, 86],
+        ["Site", "Name", "km", "C/sun-h", "Sun pr", "Air pr", "Lag air/sun"],
         table_rows,
         size=7.5,
         row_h=12,
@@ -1367,8 +1423,10 @@ def _sunlight_comparison(
         MARGIN,
         y + 6,
         118,
-        "Rise over normal: slope is \u00b0C of water-temperature rise per sunshine-hour above "
-        "each stream's own rolling normal, strongest first. Correlation is not causation.",
+        "Rise over normal, air held constant: slope is \u00b0C of water-temperature rise per "
+        "sunshine-hour above each stream's own rolling normal, from a joint regression with "
+        "air temperature (Sun pr / Air pr are partial correlations), strongest first. "
+        "Correlation is not causation.",
         size=8,
         colour=MUTED,
         leading=10.5,
@@ -1410,10 +1468,13 @@ def _references_page(document: PdfDocument, data: ReportData, *, page_number: in
     text = (
         "Rise over normal: absolute temperature correlations mostly track the seasonal cycle, so "
         "each series is also reduced to its departure from a centred 15-day rolling mean and "
-        "refitted. Those anomaly rows (and the sunlight-sensitivity table, which ranks streams by "
-        "\u00b0C of water rise per sunshine-hour above normal) describe day-to-day drivers rather than "
-        "seasons. On short windows the rolling normal removes much of the variation, so treat the "
-        "anomaly results as a screening heuristic."
+        "refitted. Those anomaly rows describe day-to-day drivers rather than seasons. The driver "
+        "split and the sunlight-sensitivity table go one step further: water anomalies are "
+        "regressed on air and sunshine anomalies together, so each slope is one driver's effect "
+        "with the other held constant (\u00b0C of water rise per sunshine-hour above normal, air "
+        "constant), and streams are ranked by that held-constant sunshine response. Partial "
+        "correlations (pr) accompany each slope. On short windows the rolling normal removes much "
+        "of the variation, so treat the anomaly results as a screening heuristic."
     )
     y = _paragraph(page, MARGIN, y, 104, text, size=9, leading=12.5) + 4
     text = (

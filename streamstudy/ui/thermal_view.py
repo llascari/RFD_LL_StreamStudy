@@ -8,10 +8,12 @@ from tkinter import ttk
 from ..analysis import daily_means
 from ..models import DataBundle
 from ..thermal import (
+    JointDriverFit,
     SunlightPeer,
     ThermalAnalysis,
     WaterSource,
     build_thermal_analysis,
+    joint_anomaly_fit,
     merge_weather,
     series_water_c,
 )
@@ -35,12 +37,13 @@ class ThermalView(ttk.Frame):
         self._air: dict = {}
         self._sun: dict = {}
         self._analysis: ThermalAnalysis | None = None
+        self._joint: JointDriverFit | None = None
         self._build()
 
     # -- construction --------------------------------------------------
     def _build(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(3, weight=1)
 
         header = ttk.Frame(self)
         header.grid(row=0, column=0, sticky="ew")
@@ -96,6 +99,14 @@ class ThermalView(ttk.Frame):
         cards.grid(row=1, column=0, sticky="ew", pady=(12, 10))
         for column in range(4):
             cards.columnconfigure(column, weight=1, uniform="thermal")
+        self.split_label = ttk.Label(
+            self,
+            text="",
+            style="Muted.TLabel",
+            wraplength=1050,
+            justify="left",
+        )
+        self.split_label.grid(row=2, column=0, sticky="w", pady=(0, 8))
         self.air_card = StatCard(
             cards, "Air \u2192 water", accent=SERIES_COLORS["nws"]
         )
@@ -112,7 +123,7 @@ class ThermalView(ttk.Frame):
             card.grid(row=0, column=index, sticky="nsew", padx=(0, 10) if index < 3 else 0)
 
         body = ttk.Frame(self)
-        body.grid(row=2, column=0, sticky="nsew")
+        body.grid(row=3, column=0, sticky="nsew")
         body.columnconfigure(0, weight=1, uniform="thermal")
         body.columnconfigure(1, weight=1, uniform="thermal")
         body.rowconfigure(0, weight=3)
@@ -160,14 +171,16 @@ class ThermalView(ttk.Frame):
                 "water). Basis \u201crise over normal\u201d subtracts each series' centred 15-day "
                 "rolling mean, so the fit describes day-to-day departures from the seasonal norm "
                 "(the slope reads \u00b0C of water rise per unit of driver rise) instead of absolute "
-                "temperature, which on long windows mostly reflects the seasons. Correlation is "
-                "not causation, and MMW sensors cover the portal's recent record only."
+                "temperature, which on long windows mostly reflects the seasons. The split line "
+                "regresses both drivers together, so each slope holds the other constant \u2014 "
+                "sunshine's effect on water rise, all else being equal. Correlation is not "
+                "causation, and MMW sensors cover the portal's recent record only."
             ),
             style="Muted.TLabel",
             wraplength=1050,
             justify="left",
         )
-        self.note.grid(row=3, column=0, sticky="w", pady=(8, 0))
+        self.note.grid(row=4, column=0, sticky="w", pady=(8, 0))
 
     # -- rendering -----------------------------------------------------
     def render(self, bundle: DataBundle) -> None:
@@ -273,6 +286,14 @@ class ThermalView(ttk.Frame):
             min_pairs=5,
         )
         self._analysis = analysis
+        self._joint = joint_anomaly_fit(
+            source.daily,
+            self._air,
+            self._sun,
+            max_lag=5,
+            min_pairs=5,
+        )
+        self.split_label.configure(text=self._split_text(self._joint))
         anomaly = self.basis_var.get() == ANOMALY_BASIS
         air_fit = analysis.air if not anomaly else (analysis.air_anomaly or analysis.air)
         sun_fit = analysis.sun if not anomaly else (analysis.sun_anomaly or analysis.sun)
@@ -321,6 +342,25 @@ class ThermalView(ttk.Frame):
             empty_text="No overlapping water/sunshine daily values",
         )
         self._fill_table(air_fit, sun_fit)
+
+    @staticmethod
+    def _split_text(joint: JointDriverFit | None) -> str:
+        if joint is None:
+            return (
+                "Sun vs air split: needs overlapping water, air and sunshine anomalies "
+                "(a season or more works best)."
+            )
+        sun = f"{joint.sun_slope:+.2f}" if joint.sun_slope is not None else "\u2014"
+        air = f"{joint.air_slope:+.2f}" if joint.air_slope is not None else "\u2014"
+        sun_r = f"{joint.sun_partial_r:+.2f}" if joint.sun_partial_r is not None else "\u2014"
+        air_r = f"{joint.air_partial_r:+.2f}" if joint.air_partial_r is not None else "\u2014"
+        r2 = f"{joint.r_squared:.2f}" if joint.r_squared is not None else "\u2014"
+        return (
+            f"All else equal (rise over normal, {joint.n} days, R\u00b2 {r2}): "
+            f"sun +1 h \u2192 water {sun} \u00b0C (partial r {sun_r}) \u00b7 "
+            f"air +1 \u00b0C \u2192 water {air} \u00b0C (partial r {air_r}) \u00b7 "
+            f"lags air +{joint.air_lag} d / sun +{joint.sun_lag} d \u00b7 {joint.confidence}"
+        )
 
     def _fill_card(
         self,
@@ -396,9 +436,11 @@ class ThermalView(ttk.Frame):
         ttk.Label(
             frame,
             text=(
-                "Rise over normal: \u00b0C of water-temperature rise per sunshine-hour above "
-                "the stream's own rolling normal. Shared regional air and sunshine series; "
-                "sorted strongest first. Screening heuristic, not a calibrated model."
+                "Rise over normal, air held constant: \u00b0C of water-temperature rise per "
+                "sunshine-hour above the stream's own rolling normal, from a joint regression "
+                "with air temperature. Sun pr / Air pr are the partial correlations. Shared "
+                "regional drivers; sorted strongest first. Screening heuristic, not a "
+                "calibrated model."
             ),
             style="Muted.TLabel",
             wraplength=560,
@@ -411,10 +453,10 @@ class ThermalView(ttk.Frame):
                 "site": ("Site", 88, "w"),
                 "name": ("Name", 200, "w"),
                 "km": ("km", 52, "e"),
-                "sun_r": ("Sun r", 58, "e"),
-                "air_r": ("Air r", 58, "e"),
+                "sun_r": ("Sun pr", 58, "e"),
+                "air_r": ("Air pr", 58, "e"),
                 "slope": ("\u00b0C/sun-h", 72, "e"),
-                "lag": ("Lag d", 54, "center"),
+                "lag": ("Lag a/s", 58, "center"),
                 "pairs": ("Pairs", 54, "e"),
             },
             height=min(10, max(3, len(peers))),
@@ -447,7 +489,11 @@ class ThermalView(ttk.Frame):
                         if peer.slope_c_per_hour is not None
                         else "\u2014"
                     ),
-                    f"{peer.lag_days:+d}" if peer.lag_days is not None else "\u2014",
+                    (
+                        f"{peer.air_lag_days:+d}/{peer.sun_lag_days:+d}"
+                        if peer.air_lag_days is not None and peer.sun_lag_days is not None
+                        else "\u2014"
+                    ),
                     str(peer.pairs),
                 ),
             )
@@ -457,6 +503,8 @@ class ThermalView(ttk.Frame):
 
     def _clear(self, message: str) -> None:
         self._analysis = None
+        self._joint = None
+        self.split_label.configure(text="")
         for card in (self.air_card, self.sun_card, self.water_card, self.driver_card):
             card.set("\u2014", "", "")
         self.air_scatter.set_data([], title="Water vs air temperature", empty_text=message)

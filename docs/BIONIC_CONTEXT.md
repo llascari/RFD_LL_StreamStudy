@@ -31,9 +31,11 @@ Current capabilities:
   −5..+5 days, for USGS and MMW water sources, with signed scatters and a lag table. Two bases:
   **absolute** values and **rise over normal** (each series minus its centred 15-day rolling
   mean — anomaly fits describe day-to-day drivers instead of the seasonal cycle; cards show the
-  slope in °C per driver unit). **Compare nearby…** fetches USGS `00010` daily water temperature
-  for the nearest gages and ranks streams by sunshine slope (°C of water rise per sunshine-hour
-  above normal), strongest first.
+  slope in °C per driver unit). A **driver split** regresses water anomalies on air and sunshine
+  jointly so each slope holds the other constant (partial correlations shown). **Compare
+  nearby…** fetches USGS `00010` daily water temperature for the nearest gages and ranks streams
+  by the held-constant sunshine slope (°C of water rise per sunshine-hour above normal, air
+  constant), strongest first.
 - Navigable OpenStreetMap view with lagged cross-correlation between streams and rain.
 - Historical PDF reports: single gage or radius region, up to 10 years, flow + temperature +
   extreme days + temperature correlations + schematic map + sources/limitations.
@@ -105,9 +107,10 @@ make test / make gui-test / make run
 
 ## Recent work and current caveats
 
-- The latest feature is the **rise-over-normal** (anomaly) basis and the cross-stream
-  **sunlight comparison** in Temp Drivers — also on the PDF thermal page (anomaly rows in the
-  correlation summary and a sunlight-sensitivity region table).
+- The latest feature is the **rise-over-normal** (anomaly) basis, the **driver split** (joint
+  air+sunshine regression with partial correlations) and the cross-stream **sunlight comparison**
+  in Temp Drivers — also on the PDF thermal page (anomaly rows, split table, sunlight-sensitivity
+  region table).
 - Anomaly caveat: with a 15-day rolling normal, windows shorter than ~3 weeks leave little
   anomaly signal; MMW recent-only series are especially affected.
 - PDF reports are 5 pages for one gage and 3 pages per additional region gage.

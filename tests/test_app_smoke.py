@@ -326,6 +326,8 @@ class AppSmokeTest(unittest.TestCase):
         self.assertTrue(view.sun_card.value_var.get().startswith("r "))
         view.basis_var.set("Rise over normal")
         view._render_selected()
+        # The driver-split strip reports the held-constant (partial) slopes.
+        self.assertTrue(view.split_label.cget("text"))
 
     def test_thermal_peer_dialog_lists_rows(self):
         from streamstudy.thermal import SunlightPeer
@@ -334,7 +336,8 @@ class AppSmokeTest(unittest.TestCase):
             SunlightPeer(
                 "A", "SUN CREEK", 0.0, water_days=30,
                 sun_r=0.7, air_r=0.5, slope_c_per_hour=1.4,
-                lag_days=0, pairs=28, confidence="moderate", this_site=True,
+                sun_lag_days=0, air_lag_days=1, r_squared=0.55,
+                pairs=28, confidence="moderate", this_site=True,
             ),
             SunlightPeer("B", "SHADY CREEK", 9.0, water_days=25, error="boom"),
         )

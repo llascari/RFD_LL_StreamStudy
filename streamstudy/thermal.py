@@ -63,8 +63,35 @@ class ThermalAnalysis:
 
 
 @dataclass(frozen=True)
+class JointDriverFit:
+    """Two-driver regression on rise-over-normal anomalies.
+
+    Water-temperature anomalies are regressed on air-temperature and
+    sunshine anomalies **together**, so each slope is one driver's effect
+    with the other held constant ("all else being equal"). This separates
+    sunshine's influence from the air temperature it travels with.
+    """
+
+    n: int = 0
+    air_lag: int = 0
+    sun_lag: int = 0
+    air_slope: float | None = None  # °C per °C of air anomaly, sun constant
+    sun_slope: float | None = None  # °C per sunshine-hour anomaly, air constant
+    r_squared: float | None = None
+    sun_partial_r: float | None = None
+    air_partial_r: float | None = None
+    confidence: str = "n/a"
+
+
+@dataclass(frozen=True)
 class SunlightPeer:
-    """Sunshine-driven water-temperature sensitivity for one stream."""
+    """Sunshine-driven water-temperature sensitivity for one stream.
+
+    ``slope_c_per_hour`` is the **partial** sunshine slope from the joint
+    anomaly fit: °C of water rise per sunshine-hour above normal, with air
+    temperature held constant. ``sun_r``/``air_r`` are the matching partial
+    correlations.
+    """
 
     site_number: str
     name: str
@@ -73,7 +100,9 @@ class SunlightPeer:
     sun_r: float | None = None
     air_r: float | None = None
     slope_c_per_hour: float | None = None
-    lag_days: int | None = None
+    sun_lag_days: int | None = None
+    air_lag_days: int | None = None
+    r_squared: float | None = None
     pairs: int = 0
     confidence: str = "n/a"
     this_site: bool = False
@@ -177,6 +206,131 @@ def linear_fit(
     sxy = math.fsum((x - mean_x) * (y - mean_y) for x, y in points)
     slope = sxy / sxx
     return slope, mean_y - slope * mean_x
+
+
+def partial_pearson(r_xy: float, r_xz: float, r_yz: float) -> float | None:
+    """Correlation of x and y with z's shared influence removed."""
+    denominator = (1.0 - r_xz * r_xz) * (1.0 - r_yz * r_yz)
+    if denominator <= 1e-12:
+        return None
+    return (r_xy - r_xz * r_yz) / math.sqrt(denominator)
+
+
+def _ols2(
+    air: list[float], sun: list[float], water: list[float]
+) -> tuple[float, float, float, float, float, float] | None:
+    """OLS with two predictors; ``(air_slope, sun_slope, r2, air_partial,
+    sun_partial, n)`` or ``None`` when the predictors are collinear."""
+    count = len(water)
+    mean_air = math.fsum(air) / count
+    mean_sun = math.fsum(sun) / count
+    mean_water = math.fsum(water) / count
+    s_aa = math.fsum((a - mean_air) ** 2 for a in air)
+    s_ss = math.fsum((s - mean_sun) ** 2 for s in sun)
+    s_as = math.fsum((a - mean_air) * (s - mean_sun) for a, s in zip(air, sun))
+    s_aw = math.fsum((a - mean_air) * (w - mean_water) for a, w in zip(air, water))
+    s_sw = math.fsum((s - mean_sun) * (w - mean_water) for s, w in zip(sun, water))
+    s_ww = math.fsum((w - mean_water) ** 2 for w in water)
+    determinant = s_aa * s_ss - s_as * s_as
+    if determinant <= 1e-9 * max(1.0, s_aa * s_ss):
+        return None  # sun and air anomalies carry (almost) the same signal
+    air_slope = (s_ss * s_aw - s_as * s_sw) / determinant
+    sun_slope = (s_aa * s_sw - s_as * s_aw) / determinant
+    residuals = [
+        w - (mean_water + air_slope * (a - mean_air) + sun_slope * (s - mean_sun))
+        for a, s, w in zip(air, sun, water)
+    ]
+    sse = math.fsum(residual * residual for residual in residuals)
+    r_squared = 1.0 - sse / s_ww if s_ww > 1e-12 else None
+    r_air = pearson(air, water)
+    r_sun = pearson(sun, water)
+    r_air_sun = pearson(air, sun)
+    return (
+        air_slope,
+        sun_slope,
+        r_squared,
+        partial_pearson(r_air, r_sun, r_air_sun),
+        partial_pearson(r_sun, r_air, r_air_sun),
+        count,
+    )
+
+
+def joint_anomaly_fit(
+    water: dict[date, float],
+    air: dict[date, float],
+    sunshine: dict[date, float],
+    *,
+    max_lag: int = 5,
+    min_pairs: int = 5,
+    anomaly_half_window: int = 7,
+    anomaly_min_points: int = 5,
+) -> JointDriverFit | None:
+    """Sun and air effects on water rise, each holding the other constant.
+
+    All three series are reduced to rise-over-normal anomalies, then water is
+    regressed on air and sunshine together at every ``(air_lag, sun_lag)``
+    pair from 0 to ``max_lag`` days (drivers lead water). The best r² wins;
+    slopes are in °C of water rise per unit of driver rise.
+    """
+    water_anomaly = anomalies(
+        water,
+        rolling_nominal(
+            water, half_window=anomaly_half_window, min_points=anomaly_min_points
+        ),
+    )
+    air_anomaly = anomalies(
+        air,
+        rolling_nominal(
+            air, half_window=anomaly_half_window, min_points=anomaly_min_points
+        ),
+    )
+    sun_anomaly = anomalies(
+        sunshine,
+        rolling_nominal(
+            sunshine, half_window=anomaly_half_window, min_points=anomaly_min_points
+        ),
+    )
+    if not water_anomaly or not air_anomaly or not sun_anomaly:
+        return None
+
+    best: JointDriverFit | None = None
+    best_key: tuple[float, int, int] | None = None
+    for air_lag in range(0, max_lag + 1):
+        for sun_lag in range(0, max_lag + 1):
+            paired_air: list[float] = []
+            paired_sun: list[float] = []
+            paired_water: list[float] = []
+            for day, water_value in water_anomaly.items():
+                air_value = air_anomaly.get(day - timedelta(days=air_lag))
+                sun_value = sun_anomaly.get(day - timedelta(days=sun_lag))
+                if air_value is None or sun_value is None:
+                    continue
+                paired_air.append(air_value)
+                paired_sun.append(sun_value)
+                paired_water.append(water_value)
+            if len(paired_water) < min_pairs:
+                continue
+            fitted = _ols2(paired_air, paired_sun, paired_water)
+            if fitted is None:
+                continue
+            air_slope, sun_slope, r_squared, air_partial, sun_partial, count = fitted
+            if r_squared is None or not math.isfinite(r_squared):
+                continue
+            key = (r_squared, -air_lag, -sun_lag)
+            if best_key is None or key > best_key:
+                best_key = key
+                best = JointDriverFit(
+                    n=count,
+                    air_lag=air_lag,
+                    sun_lag=sun_lag,
+                    air_slope=air_slope,
+                    sun_slope=sun_slope,
+                    r_squared=r_squared,
+                    sun_partial_r=sun_partial,
+                    air_partial_r=air_partial,
+                    confidence=confidence_label(sun_partial, count),
+                )
+    return best
 
 
 def _driver_fit(
@@ -328,12 +482,14 @@ def sunlight_peers(
     max_lag: int = 5,
     min_pairs: int = 5,
 ) -> tuple[SunlightPeer, ...]:
-    """Compare how strongly sunshine anomalies drive water-temperature anomalies.
+    """Compare sunshine's effect on water rise with air held constant.
 
     ``peers`` items are ``(site_number, name, distance_km, water, air, sun,
-    error)``. Each stream is fitted the same way and rows are returned sorted
-    by the sunshine slope (°C of water rise per sunshine-hour above normal),
-    strongest first, so relative sunlight sensitivity is directly visible.
+    error)``. Every stream gets the same joint anomaly regression (water on
+    air and sunshine together), so the ranked slope is °C of water rise per
+    sunshine-hour above normal **holding air temperature constant" — for
+    roughly the same sun exposure, streams that differ here really do respond
+    differently. Rows are sorted strongest first.
     """
 
     def row(
@@ -362,20 +518,26 @@ def sunlight_peers(
             max_lag=max_lag,
             min_pairs=min_pairs,
         )
-        sun_fit = analysis.sun_anomaly
-        air_fit = analysis.air_anomaly
-        best = sun_fit.best if sun_fit is not None else None
+        joint = joint_anomaly_fit(
+            water,
+            air,
+            sun,
+            max_lag=max_lag,
+            min_pairs=min_pairs,
+        )
         return SunlightPeer(
             site_number=number,
             name=name,
             distance_km=distance,
             water_days=analysis.water_days,
-            sun_r=best.r if best is not None else None,
-            air_r=(air_fit.best.r if air_fit is not None and air_fit.best else None),
-            slope_c_per_hour=sun_fit.slope if sun_fit is not None else None,
-            lag_days=best.lag_days if best is not None else None,
-            pairs=best.n if best is not None else 0,
-            confidence=sun_fit.confidence if sun_fit is not None else "n/a",
+            sun_r=joint.sun_partial_r if joint is not None else None,
+            air_r=joint.air_partial_r if joint is not None else None,
+            slope_c_per_hour=joint.sun_slope if joint is not None else None,
+            sun_lag_days=joint.sun_lag if joint is not None else None,
+            air_lag_days=joint.air_lag if joint is not None else None,
+            r_squared=joint.r_squared if joint is not None else None,
+            pairs=joint.n if joint is not None else 0,
+            confidence=joint.confidence if joint is not None else "n/a",
             this_site=this_site,
         )
 
