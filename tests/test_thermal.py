@@ -5,11 +5,14 @@ from datetime import date, datetime, timedelta, timezone
 
 from streamstudy.models import Sample, Series, WeatherDay
 from streamstudy.thermal import (
+    anomalies,
     build_thermal_analysis,
     confidence_label,
     linear_fit,
     merge_weather,
+    rolling_nominal,
     series_water_c,
+    sunlight_peers,
 )
 
 START = date(2025, 1, 1)
@@ -72,6 +75,94 @@ class DriverFitTest(unittest.TestCase):
         self.assertEqual(analysis.water_days, 0)
         self.assertIsNone(analysis.air.best)
         self.assertIn("No daily water", analysis.error)
+
+
+class RollingNominalTest(unittest.TestCase):
+    def test_constant_series_maps_to_itself(self):
+        values = random_days([5.0] * 30)
+        nominal = rolling_nominal(values)
+        self.assertEqual(len(nominal), 30)
+        for value in anomalies(values, nominal).values():
+            self.assertAlmostEqual(value, 0.0, places=9)
+
+    def test_spike_survives_as_anomaly(self):
+        values = random_days([0.0] * 29 + [10.0])
+        anom = anomalies(values, rolling_nominal(values))
+        self.assertGreater(abs(anom[START + timedelta(days=29)]), 8.0)
+
+    def test_short_series_has_no_nominal(self):
+        self.assertEqual(rolling_nominal(random_days([1.0, 2.0, 3.0])), {})
+
+
+class AnomalyFitTest(unittest.TestCase):
+    def test_anomaly_fit_recovers_coupling_hidden_by_the_seasons(self):
+        # Water follows its own (phase-shifted) seasonal cycle plus 0.8 of
+        # yesterday's AIR ANOMALY. The absolute fit is dominated by the
+        # seasons; the anomaly fit should recover the coupling.
+        rng = random.Random(3)
+        noise = [rng.uniform(-6.0, 6.0) for _ in range(120)]
+        air = {}
+        water = {}
+        for index in range(120):
+            day = START + timedelta(days=index)
+            air[day] = 12.0 + 9.0 * math.sin(2 * math.pi * index / 120) + noise[index]
+            if index:
+                water[day] = (
+                    9.0
+                    - 5.0 * math.sin(2 * math.pi * index / 120)
+                    + 0.8 * noise[index - 1]
+                )
+        analysis = build_thermal_analysis(water, air, {}, max_lag=5, min_pairs=5)
+        self.assertIsNotNone(analysis.air_anomaly)
+        fit = analysis.air_anomaly
+        self.assertIsNotNone(fit.best)
+        self.assertEqual(fit.best.lag_days, 1)
+        self.assertGreater(fit.best.r, 0.95)
+        self.assertGreater(fit.slope, 0.75)
+        self.assertLess(fit.slope, 0.85)
+        # The anomaly view must beat the absolute view at this game.
+        self.assertGreater(fit.best.r, analysis.air.best.r)
+        self.assertGreater(analysis.anomaly_days, 90)
+
+    def test_sun_anomaly_slope_is_exact_for_linear_water(self):
+        sun_values = [6.0 + 4.0 * math.sin(2 * math.pi * i / 90) + (i % 7) - 3 for i in range(90)]
+        sun = random_days(sun_values)
+        water = {day: 5.0 + 2.0 * value for day, value in sun.items()}
+        analysis = build_thermal_analysis(water, {}, sun, max_lag=5, min_pairs=5)
+        fit = analysis.sun_anomaly
+        self.assertIsNotNone(fit)
+        self.assertIsNotNone(fit.best)
+        self.assertAlmostEqual(fit.slope, 2.0, places=6)
+        self.assertAlmostEqual(fit.best.r, 1.0, places=6)
+
+
+class SunlightPeersTest(unittest.TestCase):
+    def test_peers_ranked_by_sunlight_slope(self):
+        sun_values = [5.0 + ((index * 7) % 11) * 0.8 for index in range(40)]
+        sun = random_days(sun_values)
+        base_water = {day: 2.0 * value for day, value in sun.items()}
+        flat_water = random_days([8.0] * 40)
+        rows = sunlight_peers(
+            "A",
+            "BASE CREEK",
+            base_water,
+            {},
+            sun,
+            [("B", "FLAT CREEK", 3.0, flat_water, {}, sun, "")],
+        )
+        self.assertEqual(rows[0].site_number, "A")
+        self.assertTrue(rows[0].this_site)
+        self.assertAlmostEqual(rows[0].slope_c_per_hour, 2.0, places=6)
+        self.assertEqual(rows[1].site_number, "B")
+        self.assertEqual(rows[1].slope_c_per_hour, 0.0)
+
+    def test_peer_errors_keep_their_slot(self):
+        rows = sunlight_peers(
+            "A", "BASE", {}, {}, {}, [("B", "X", 2.0, {}, {}, {}, "boom")]
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1].error, "boom")
+        self.assertEqual(rows[0].this_site, True)
 
 
 class ConfidenceTest(unittest.TestCase):

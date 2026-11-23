@@ -7,8 +7,10 @@ from pathlib import Path
 
 try:
     import tkinter as tk
+    from tkinter import ttk
 except Exception:  # pragma: no cover
     tk = None
+    ttk = None
 
 from streamstudy.app import StreamStudyApp, normalize_site, parse_site_number
 from streamstudy.loader import LoadOptions
@@ -316,6 +318,52 @@ class AppSmokeTest(unittest.TestCase):
         self.assertGreaterEqual(len(view.air_scatter.find_all()), 1)
         self.assertGreaterEqual(len(view.sun_scatter.find_all()), 1)
         self.assertEqual(len(view.table.get_children()), 11)
+        # Rise over normal is the default basis and shows slopes; absolute shows r.
+        self.assertEqual(view.basis_var.get(), "Rise over normal")
+        self.assertTrue(view.sun_card.value_var.get().startswith("+"))
+        view.basis_var.set("Absolute")
+        view._render_selected()
+        self.assertTrue(view.sun_card.value_var.get().startswith("r "))
+        view.basis_var.set("Rise over normal")
+        view._render_selected()
+
+    def test_thermal_peer_dialog_lists_rows(self):
+        from streamstudy.thermal import SunlightPeer
+
+        rows = (
+            SunlightPeer(
+                "A", "SUN CREEK", 0.0, water_days=30,
+                sun_r=0.7, air_r=0.5, slope_c_per_hour=1.4,
+                lag_days=0, pairs=28, confidence="moderate", this_site=True,
+            ),
+            SunlightPeer("B", "SHADY CREEK", 9.0, water_days=25, error="boom"),
+        )
+        self.app.thermal_view.show_peer_comparison(rows)
+        self.root.update()
+
+        def walk(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from walk(child)
+
+        try:
+            toplevels = [
+                child
+                for child in self.root.winfo_children()
+                if isinstance(child, tk.Toplevel)
+            ]
+            self.assertTrue(toplevels)
+            dialog = toplevels[-1]
+            trees = [
+                widget for widget in walk(dialog) if isinstance(widget, ttk.Treeview)
+            ]
+            self.assertEqual(len(trees), 1)
+            self.assertEqual(len(trees[0].get_children()), 2)
+        finally:
+            for child in self.root.winfo_children():
+                if isinstance(child, tk.Toplevel):
+                    child.destroy()
+        self.root.update()
 
     def test_reset_settings(self):
         from unittest.mock import patch

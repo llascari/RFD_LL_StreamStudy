@@ -391,6 +391,8 @@ class SignedScatterChart(tk.Canvas):
         fit: tuple[tuple[float, float], tuple[float, float]] | None = None,
         title: str | None = None,
         empty_text: str | None = None,
+        x_unit: str | None = None,
+        y_unit: str | None = None,
     ) -> None:
         self._points = list(points)
         self._fit = fit
@@ -398,6 +400,10 @@ class SignedScatterChart(tk.Canvas):
             self._title = title
         if empty_text is not None:
             self._empty = empty_text
+        if x_unit is not None:
+            self._x_unit = x_unit
+        if y_unit is not None:
+            self._y_unit = y_unit
         self._hover = None
         self.redraw()
 

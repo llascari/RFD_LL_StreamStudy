@@ -37,7 +37,7 @@ region table on the cover.
 | Cover | Site name/number/coordinates, window, radius, threshold, precipitation source, a plain-language warning, summary cards, schematic locator map, region table |
 | Flow | Mean/median/min/max, 10th–90th percentiles, daily hydrograph with rain bars, highest and lowest daily flows with dates and that day's rain |
 | Temperature | Water (USGS `00010`, daily mean) and air (ERA5) series, threshold line, mean/min/max with dates, days and hours above the threshold, longest warm run, warmest/coldest water days, sunshine, and the fitted rainfall–runoff response with the largest storms |
-| Temperature correlations | Air and sunshine vs water temperature at lags −5 to +5 days for **USGS and nearby Monitor My Watershed** sensors; signed scatter plots with regression lines, best r/lag, paired days, confidence and the full lag table |
+| Temperature correlations | Air and sunshine vs water temperature at lags −5 to +5 days for **USGS and nearby Monitor My Watershed** sensors, in absolute and rise-over-normal (rolling-mean anomaly) forms; signed scatter plots with regression lines, best r/lag, paired days, confidence and the full lag table; plus a **sunlight sensitivity** table ranking the primary gage against its region peers by °C of water rise per sunshine-hour above normal |
 | Region site | Compact flow page, a temperature/response page, and a temperature-correlation page (3 pages per creek) |
 | References | USGS, CoCoRaHS, Open-Meteo/ERA5 and OSM links; methods; health warnings; how to reproduce |
 
@@ -59,6 +59,12 @@ each USGS site number; the app's interactive OpenStreetMap tab is the place to e
   temperature and sunshine at lags from −5 to +5 days. Positive lag means water follows the driver.
   Pearson r and the best absolute lag are reported for each USGS/MMW water source. MMW sensors are
   recent-only; correlation is not causation.
+- **Rise over normal** — the same fits are repeated after subtracting each series' centred 15-day
+  rolling mean, isolating day-to-day departures from the seasonal norm. On long windows the
+  absolute correlations mostly track the seasons; the anomaly rows track the weather.
+- **Sunlight sensitivity** — in region reports, every gage with water temperature is ranked by °C
+  of water rise per sunshine-hour above its own normal, strongest first, so relative sunlight
+  dependence across nearby streams can be compared directly.
 - **Storm response** — storms are ≥ 0.10 in rain; baseflow is a smoothed 7-day rolling minimum;
   a rise is the peak above baseflow within four days. The fitted rate, lag percentiles and
   recession half-life describe the observed events; they are not calibrated hydrologic parameters.

@@ -18,25 +18,13 @@ from .providers.monitormywatershed import MonitorMyWatershedProvider
 from .providers.nws import NwsProvider
 from .providers.openmeteo import OpenMeteoProvider
 from .providers.usgs import UsgsProvider
+from .analysis import haversine_km as _haversine_km
 from .report import ReportData, ReportSite
 from .thermal import series_water_c
 
 
 class ReportCancelled(Exception):
     """Raised when the user cancels a long report job."""
-
-
-def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Great-circle distance in kilometres."""
-    radius = 6371.0
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dphi / 2.0) ** 2
-        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
-    )
-    return 2.0 * radius * math.asin(min(1.0, math.sqrt(a)))
 
 
 @dataclass(frozen=True)
@@ -610,6 +598,32 @@ class BundleLoader:
             _, fit = analyse_history(flows[site.number], rain or {})
             fits[site.number] = fit
         return build_ranking(chosen, flows, temperatures, fits, base_site)
+
+    def load_thermal_peers(
+        self,
+        candidates: list[Site],
+        *,
+        window: TimeWindow,
+        max_sites: int = 6,
+    ) -> list[tuple[Site, dict[date, float], str]]:
+        """Daily water temperature for nearby gages, one USGS request each.
+
+        Returns ``(site, water_daily, error)`` per candidate; a failed fetch
+        keeps its slot with an error message so the comparison can explain it.
+        Drivers (air, sunshine) are shared with the base site's series, so only
+        water temperature is fetched.
+        """
+        clipped = window.clipped()
+        results: list[tuple[Site, dict[date, float], str]] = []
+        for site in candidates[: max(1, int(max_sites))]:
+            try:
+                daily = self.usgs.fetch_daily(
+                    site.number, clipped.start, clipped.end, ("00010",)
+                )
+                results.append((site, dict(daily.get("00010", {})), ""))
+            except Exception as exc:  # noqa: BLE001 - skip unusable candidates
+                results.append((site, {}, str(exc)))
+        return results
 
     def load_regional(
         self,

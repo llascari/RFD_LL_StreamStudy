@@ -88,6 +88,28 @@ class FakeMmw:
         }
 
 
+class ThermalPeersTest(unittest.TestCase):
+    def test_fetches_water_and_reports_errors(self):
+        class PeerUsgs:
+            def fetch_daily(self, number, start, end, codes):
+                if number == "BAD":
+                    raise RuntimeError("boom")
+                return {"00010": {START: 11.0, START + timedelta(days=1): 12.0}}
+
+        loader = FakeReportLoader()
+        loader.usgs = PeerUsgs()
+        sites = [make_site("OK1", 43.0, -77.0), make_site("BAD", 43.1, -77.1)]
+        results = loader.load_thermal_peers(sites, window=WINDOW)
+        self.assertEqual(len(results), 2)
+        site, water, error = results[0]
+        self.assertEqual(site.number, "OK1")
+        self.assertEqual(water[START], 11.0)
+        self.assertEqual(error, "")
+        self.assertEqual(results[1][0].number, "BAD")
+        self.assertEqual(results[1][1], {})
+        self.assertIn("boom", results[1][2])
+
+
 class HaversineTest(unittest.TestCase):
     def test_zero_and_known_distance(self):
         self.assertEqual(_haversine_km(43.0, -77.0, 43.0, -77.0), 0.0)

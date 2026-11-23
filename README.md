@@ -152,6 +152,23 @@ integrates heat over time. MMW sensors only expose the portal's recent record, s
 is a short-window view; USGS daily values can cover the full 10-year analysis window. Correlation
 is not causation, and the weather drivers are gridded model estimates rather than on-site gauges.
 
+### Rise over normal
+
+Absolute temperature correlations mostly answer "is summer warm?". Switch the tab's **Basis** to
+**Rise over normal** and every series is reduced to its departure from a centred 15-day rolling
+mean before fitting. The cards then show the **slope**: how many °C of water rise accompany each
+°C (or sunshine-hour) of driver rise above normal, which is the day-to-day driver signal rather
+than the seasonal cycle. Short windows have little room between the rolling normal and the data,
+so treat anomaly results there as screening only.
+
+### Compare nearby…
+
+**Compare nearby…** in the Temp Drivers tab asks the cross-stream question: given the same
+regional air and sunshine, which creek's water temperature responds most to sunshine? It fetches
+daily water temperature for the nearest USGS gages (about 0.5° bbox, up to six), fits each stream
+the same way, and ranks them by °C of water rise per sunshine-hour above normal, strongest first,
+alongside each stream's sunshine and air anomaly correlations.
+
 ## Historical PDF reports
 
 Choose **File → Generate PDF report…** to produce a shareable PDF for the loaded gage. You pick a
@@ -165,8 +182,9 @@ a radius; with a radius, every active USGS discharge gage inside it becomes its 
 - a **temperature** page: daily water (USGS) and air (ERA5) temperatures, threshold line, days and
   hours above the threshold, longest warm run, warmest/coldest days, sunshine, and the fitted
   rainfall-runoff response with the largest storms;
-- a **temperature-correlation** page: air/sunshine vs water at lags −5 to +5 days, signed scatter
-  plots and a summary for every USGS and Monitor My Watershed water source;
+- a **temperature-correlation** page: air/sunshine vs water at lags −5 to +5 days (absolute and
+  rise-over-normal), signed scatter plots and a summary for every USGS and Monitor My Watershed
+  water source, plus a sunlight-sensitivity ranking of the region's streams when a radius was set;
 - a **region** table and one flow + temperature section per nearby creek;
 - **sources, methods, health warnings and reproduction steps**.
 

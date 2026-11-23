@@ -14,12 +14,17 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from .analysis import nice_step
+from .analysis import haversine_km, nice_step
 from .analysis_window import TimeWindow
 from .models import FlowEvent, ResponseFit, Site, utc_now
 from .pdf import PAGE_H, PAGE_W, PdfDocument, PdfPage
 from .response import percentile
-from .thermal import DriverFit, WaterSource, build_thermal_analysis
+from .thermal import (
+    DriverFit,
+    WaterSource,
+    build_thermal_analysis,
+    sunlight_peers,
+)
 
 INK = (0.11, 0.13, 0.17)
 MUTED = (0.42, 0.46, 0.52)
@@ -1168,7 +1173,15 @@ def _thermal_page(
     y = _heading(page, y, "Correlation summary", size=10)
     rows = []
     for source, analysis in analyses:
-        for fit in (analysis.air, analysis.sun):
+        fits = [
+            analysis.air,
+            analysis.sun,
+            analysis.air_anomaly,
+            analysis.sun_anomaly,
+        ]
+        for fit in fits:
+            if fit is None:
+                continue
             best = fit.best
             rows.append(
                 [
@@ -1247,8 +1260,119 @@ def _thermal_page(
             colour=MUTED,
         )
 
+    if primary_source is not None:
+        _sunlight_comparison(page, data, site_report, primary_source, y)
+
     _footer(page, page_number)
     return page
+
+
+def _sunlight_comparison(
+    page: PdfPage,
+    data: ReportData,
+    site_report: ReportSite,
+    primary_source: WaterSource,
+    y: float,
+) -> None:
+    """Rank the primary gage and its region peers by sunlight-driven water rise."""
+    peers = []
+    for other in data.region:
+        sources = _thermal_sources(other)
+        if not sources:
+            continue
+        source = sources[0]
+        peers.append(
+            (
+                other.site.number,
+                other.site.name,
+                haversine_km(
+                    site_report.site.latitude,
+                    site_report.site.longitude,
+                    other.site.latitude,
+                    other.site.longitude,
+                ),
+                source.daily,
+                other.air_mean,
+                other.sunshine,
+                "",
+            )
+        )
+    if not peers:
+        page.text(
+            MARGIN,
+            y + 6,
+            "Region comparison: generate a region report (with a radius) to compare sunlight "
+            "sensitivity across nearby streams.",
+            size=8,
+            colour=MUTED,
+        )
+        return
+
+    ranked = sunlight_peers(
+        site_report.site.number,
+        site_report.site.name,
+        primary_source.daily,
+        site_report.air_mean,
+        site_report.sunshine,
+        peers,
+    )
+    rows = [
+        peer
+        for peer in ranked
+        if peer.slope_c_per_hour is not None or peer.this_site or peer.error
+    ]
+    heading_h = 18
+    note_h = 24
+    room = PAGE_H - 40 - y - heading_h - note_h
+    capacity = int(room // 12)
+    rows = rows[: max(0, capacity)]
+    if len(rows) < 1:
+        return
+    y = _heading(page, y, "Sunlight sensitivity across the region", size=10)
+    table_rows = []
+    for peer in rows:
+        name = peer.name[:30] + (" (this gage)" if peer.this_site else "")
+        if peer.error:
+            table_rows.append(
+                [peer.site_number, f"{name} \u2014 {peer.error[:36]}", "", "", "", "", ""]
+            )
+            continue
+        table_rows.append(
+            [
+                peer.site_number,
+                name,
+                f"{peer.distance_km:.0f}",
+                f"{peer.sun_r:+.2f}" if peer.sun_r is not None else "n/a",
+                f"{peer.air_r:+.2f}" if peer.air_r is not None else "n/a",
+                (
+                    f"{peer.slope_c_per_hour:+.2f}"
+                    if peer.slope_c_per_hour is not None
+                    else "n/a"
+                ),
+                f"{peer.lag_days:+d}" if peer.lag_days is not None else "n/a",
+            ]
+        )
+    y = _table(
+        page,
+        MARGIN,
+        y,
+        [66, 148, 40, 48, 48, 64, 46],
+        ["Site", "Name", "km", "Sun r", "Air r", "C/sun-h", "Lag d"],
+        table_rows,
+        size=7.5,
+        row_h=12,
+    )
+    _paragraph(
+        page,
+        MARGIN,
+        y + 6,
+        118,
+        "Rise over normal: slope is \u00b0C of water-temperature rise per sunshine-hour above "
+        "each stream's own rolling normal, strongest first. Correlation is not causation.",
+        size=8,
+        colour=MUTED,
+        leading=10.5,
+    )
 
 
 def _references_page(document: PdfDocument, data: ReportData, *, page_number: int) -> PdfPage:
@@ -1281,6 +1405,15 @@ def _references_page(document: PdfDocument, data: ReportData, *, page_number: in
         "lags from -5 to +5 days. The report shows Pearson r at the best absolute lag and the full "
         "lag curve. A positive lag means water temperature follows the driver. Correlation is not "
         "causation; the drivers are gridded weather estimates, not gauges at the creek."
+    )
+    y = _paragraph(page, MARGIN, y, 104, text, size=9, leading=12.5) + 4
+    text = (
+        "Rise over normal: absolute temperature correlations mostly track the seasonal cycle, so "
+        "each series is also reduced to its departure from a centred 15-day rolling mean and "
+        "refitted. Those anomaly rows (and the sunlight-sensitivity table, which ranks streams by "
+        "\u00b0C of water rise per sunshine-hour above normal) describe day-to-day drivers rather than "
+        "seasons. On short windows the rolling normal removes much of the variation, so treat the "
+        "anomaly results as a screening heuristic."
     )
     y = _paragraph(page, MARGIN, y, 104, text, size=9, leading=12.5) + 4
     text = (

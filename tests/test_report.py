@@ -89,7 +89,9 @@ def make_report(region: bool = False) -> ReportData:
             START + timedelta(days=i): 5.0 + 12.0 * math.sin(i / 30.0)
             for i in range(60)
         },
-        sunshine={START + timedelta(days=i): 6.0 for i in range(60)},
+        sunshine={
+            START + timedelta(days=i): 6.0 + 2.0 * math.sin(i / 5.0) for i in range(60)
+        },
     )
     sites = ()
     if region:
@@ -97,8 +99,11 @@ def make_report(region: bool = False) -> ReportData:
         sites = (
             ReportSite(
                 site=other_site,
-                history=make_history(other_site, days=45, with_temperature=False),
+                history=make_history(other_site, days=45),
                 air_mean={START + timedelta(days=i): 7.0 for i in range(45)},
+                sunshine={
+                    START + timedelta(days=i): 5.0 + ((i * 3) % 9) for i in range(45)
+                },
                 distance_km=8.4,
             ),
         )
@@ -200,6 +205,13 @@ class PdfReportTest(unittest.TestCase):
         self.assertIn(b"04232050", payload)
         self.assertIn(b"Region report", payload)
         self.assertIn(b"Temperature correlations", payload)
+        self.assertIn(b"Sunlight sensitivity across the region", payload)
+        self.assertIn(b"air anomaly", payload)
+
+    def test_single_site_report_mentions_anomaly_basis(self):
+        _written, payload = self._write(make_report(), "single.pdf")
+        self.assertIn(b"air anomaly", payload)
+        self.assertIn(b"Region comparison", payload)
 
     def test_report_survives_missing_temperature_and_flow(self):
         site = make_site("00000001", "DRY CREEK", 43.0, -77.0)

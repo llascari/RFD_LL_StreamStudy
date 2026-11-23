@@ -26,6 +26,7 @@ from .http import HttpClient
 from .loader import BundleLoader, LoadOptions
 from .models import DataBundle
 from .providers import build_providers
+from .thermal import sunlight_peers
 from .updates import (
     UpdateStatus,
     check_for_update,
@@ -949,6 +950,72 @@ class StreamStudyApp:
         if hub is not None:
             self.set_status(
                 f"Suggested hub: {hub.site.number} \u2014 {hub.reasons}", tone="good"
+            )
+
+    def compare_thermal_nearby(self) -> None:
+        """Rank nearby gages by sunshine-driven water-temperature rise."""
+        if self.bundle is None:
+            return
+        inputs = self.thermal_view.comparison_inputs()
+        if inputs is None:
+            self.set_status("Load a site with water temperature first.", tone="warn")
+            return
+        _label, base_water, air, sun = inputs
+        base = self.bundle.site
+        window = self.analysis_window.clipped()
+        radius = 0.5
+        bbox = (
+            base.longitude - radius,
+            base.latitude - radius,
+            base.longitude + radius,
+            base.latitude + radius,
+        )
+
+        def work():
+            sites = self.providers["usgs"].search_sites(bbox=bbox, limit=80)
+            candidates = [site for site in sites if site.number != base.number]
+            candidates.sort(key=lambda candidate: self._distance_km(base, candidate))
+            fetched = self.loader.load_thermal_peers(
+                candidates, window=window, max_sites=6
+            )
+            peers = [
+                (
+                    site.number,
+                    site.name,
+                    self._distance_km(base, site),
+                    water,
+                    air,
+                    sun,
+                    error,
+                )
+                for site, water, error in fetched
+            ]
+            return sunlight_peers(base.number, base.name, base_water, air, sun, peers)
+
+        self.set_status("Comparing sunlight response at nearby gages\u2026", tone="accent")
+        self.run_async(work, self._finish_thermal_peers)
+
+    def _finish_thermal_peers(self, rows, error) -> None:
+        if error is not None:
+            self.set_status(f"Sunlight comparison failed: {error}", tone="bad")
+            return
+        if not rows:
+            self.set_status("No nearby gages to compare.", tone="warn")
+            return
+        self.thermal_view.show_peer_comparison(rows)
+        top = rows[0]
+        if top.this_site:
+            self.set_status(
+                "This gage shows the strongest sunlight-driven rise nearby.", tone="good"
+            )
+        elif top.slope_c_per_hour is not None:
+            self.set_status(
+                f"Most sunlight-driven nearby: {top.site_number} \u2014 {top.name}",
+                tone="good",
+            )
+        else:
+            self.set_status(
+                "No nearby gage had enough paired water-temperature days.", tone="warn"
             )
 
     # -- updates -------------------------------------------------------

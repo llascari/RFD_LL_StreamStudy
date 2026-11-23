@@ -8,6 +8,7 @@ from tkinter import ttk
 from ..analysis import daily_means
 from ..models import DataBundle
 from ..thermal import (
+    SunlightPeer,
     ThermalAnalysis,
     WaterSource,
     build_thermal_analysis,
@@ -16,7 +17,11 @@ from ..thermal import (
 )
 from .charts import SignedScatterChart
 from .theme import SERIES_COLORS
-from .widgets import StatCard, clear_tree, treeview
+from .widgets import StatCard, clear_tree, set_row_tone, treeview
+
+ABSOLUTE_BASIS = "Absolute"
+ANOMALY_BASIS = "Rise over normal"
+BASIS_CHOICES = (ABSOLUTE_BASIS, ANOMALY_BASIS)
 
 
 class ThermalView(ttk.Frame):
@@ -70,6 +75,22 @@ class ThermalView(ttk.Frame):
         ttk.Button(controls, text="Window\u2026", command=self.app.show_window_dialog).pack(
             side="left", padx=(8, 0)
         )
+        ttk.Label(controls, text="Basis", style="Muted.TLabel").pack(
+            side="left", padx=(12, 6)
+        )
+        self.basis_var = tk.StringVar(value=ANOMALY_BASIS)
+        basis_box = ttk.Combobox(
+            controls,
+            textvariable=self.basis_var,
+            state="readonly",
+            width=16,
+            values=list(BASIS_CHOICES),
+        )
+        basis_box.pack(side="left")
+        basis_box.bind("<<ComboboxSelected>>", lambda _event: self._render_selected())
+        ttk.Button(
+            controls, text="Compare nearby\u2026", command=self.app.compare_thermal_nearby
+        ).pack(side="left", padx=(8, 0))
 
         cards = ttk.Frame(self)
         cards.grid(row=1, column=0, sticky="ew", pady=(12, 10))
@@ -136,8 +157,11 @@ class ThermalView(ttk.Frame):
                 "Air temperature and sunshine are Open-Meteo daily means; water temperature is "
                 "USGS daily values or Monitor My Watershed sensor means. A positive lag means "
                 "water temperature follows the driver (for example, today's air and tomorrow's "
-                "water). Correlation is not causation, and MMW sensors cover the portal's recent "
-                "record only."
+                "water). Basis \u201crise over normal\u201d subtracts each series' centred 15-day "
+                "rolling mean, so the fit describes day-to-day departures from the seasonal norm "
+                "(the slope reads \u00b0C of water rise per unit of driver rise) instead of absolute "
+                "temperature, which on long windows mostly reflects the seasons. Correlation is "
+                "not causation, and MMW sensors cover the portal's recent record only."
             ),
             style="Muted.TLabel",
             wraplength=1050,
@@ -249,13 +273,21 @@ class ThermalView(ttk.Frame):
             min_pairs=5,
         )
         self._analysis = analysis
+        anomaly = self.basis_var.get() == ANOMALY_BASIS
+        air_fit = analysis.air if not anomaly else (analysis.air_anomaly or analysis.air)
+        sun_fit = analysis.sun if not anomaly else (analysis.sun_anomaly or analysis.sun)
 
-        self._fill_card(self.air_card, analysis.air, source)
-        self._fill_card(self.sun_card, analysis.sun, source)
+        self._fill_card(self.air_card, air_fit, source, anomaly, "\u00b0C per \u00b0C")
+        self._fill_card(self.sun_card, sun_fit, source, anomaly, "\u00b0C per sun-h")
         self.water_card.set(
             f"{analysis.water_days:,}",
             "days",
-            source.note,
+            (
+                f"{analysis.anomaly_days} anomaly days \u00b7 {source.note}"
+                if anomaly
+                else source.note
+            )
+            + (f" \u00b7 {analysis.anomaly_note}" if anomaly and analysis.anomaly_note else ""),
         )
         self.driver_card.set(
             f"{len(self._air)} / {len(self._sun)}",
@@ -263,42 +295,65 @@ class ThermalView(ttk.Frame):
             "air days / sunshine days",
         )
 
+        basis_note = " \u00b7 rise over normal" if anomaly else ""
         self.air_scatter.set_data(
-            analysis.air.points,
-            fit=analysis.air.fit,
+            air_fit.points,
+            fit=air_fit.fit,
             title=(
-                f"Water vs air temperature (lag {analysis.air.best.lag_days:+d} d)"
-                if analysis.air.best is not None
-                else "Water vs air temperature"
+                f"Water vs air temperature{basis_note} (lag {air_fit.best.lag_days:+d} d)"
+                if air_fit.best is not None
+                else f"Water vs air temperature{basis_note}"
             ),
+            x_unit="air \u0394C" if anomaly else "air C",
+            y_unit="water \u0394C" if anomaly else "water C",
             empty_text="No overlapping water/air daily values",
         )
         self.sun_scatter.set_data(
-            analysis.sun.points,
-            fit=analysis.sun.fit,
+            sun_fit.points,
+            fit=sun_fit.fit,
             title=(
-                f"Water vs sunshine (lag {analysis.sun.best.lag_days:+d} d)"
-                if analysis.sun.best is not None
-                else "Water vs sunshine"
+                f"Water vs sunshine{basis_note} (lag {sun_fit.best.lag_days:+d} d)"
+                if sun_fit.best is not None
+                else f"Water vs sunshine{basis_note}"
             ),
+            x_unit="sun \u0394h" if anomaly else "sun h",
+            y_unit="water \u0394C" if anomaly else "water C",
             empty_text="No overlapping water/sunshine daily values",
         )
-        self._fill_table(analysis)
+        self._fill_table(air_fit, sun_fit)
 
-    def _fill_card(self, card: StatCard, fit, source: WaterSource) -> None:
+    def _fill_card(
+        self,
+        card: StatCard,
+        fit,
+        source: WaterSource,
+        anomaly: bool,
+        slope_unit: str,
+    ) -> None:
         if fit.best is None:
             card.set("\u2014", "", f"not enough paired days \u00b7 {source.label}")
             return
-        card.set(
-            f"r {fit.best.r:+.2f}",
-            "",
-            f"best lag {fit.best.lag_days:+d} d \u00b7 n {fit.best.n} \u00b7 {fit.confidence}",
-        )
+        if anomaly:
+            slope = f"{fit.slope:+.2f}" if fit.slope is not None else "\u2014"
+            card.set(
+                slope,
+                slope_unit,
+                (
+                    f"r {fit.best.r:+.2f} \u00b7 best lag {fit.best.lag_days:+d} d "
+                    f"\u00b7 n {fit.best.n} \u00b7 {fit.confidence}"
+                ),
+            )
+        else:
+            card.set(
+                f"r {fit.best.r:+.2f}",
+                "",
+                f"best lag {fit.best.lag_days:+d} d \u00b7 n {fit.best.n} \u00b7 {fit.confidence}",
+            )
 
-    def _fill_table(self, analysis: ThermalAnalysis) -> None:
+    def _fill_table(self, air_fit, sun_fit) -> None:
         clear_tree(self.table)
-        air_rows = {lag: (r, n) for lag, r, n in analysis.air.by_lag}
-        sun_rows = {lag: (r, n) for lag, r, n in analysis.sun.by_lag}
+        air_rows = {lag: (r, n) for lag, r, n in air_fit.by_lag}
+        sun_rows = {lag: (r, n) for lag, r, n in sun_fit.by_lag}
         for lag in range(-5, 6):
             air_r, air_n = air_rows.get(lag, (None, 0))
             sun_r, sun_n = sun_rows.get(lag, (None, 0))
@@ -313,6 +368,92 @@ class ThermalView(ttk.Frame):
                     str(sun_n),
                 ),
             )
+
+    def comparison_inputs(self) -> tuple[str, dict, dict, dict] | None:
+        """``(label, water, air, sun)`` for the selected source, or ``None``.
+
+        Read on the main thread only (it touches Tk variables); the result is
+        plain data that a worker can use safely.
+        """
+        source = self._selected_source()
+        if source is None:
+            return None
+        return source.label, dict(source.daily), dict(self._air), dict(self._sun)
+
+    def show_peer_comparison(self, peers: tuple[SunlightPeer, ...]) -> None:
+        """Dialog comparing sunshine-driven water rise across nearby streams."""
+        window = tk.Toplevel(self.winfo_toplevel())
+        window.title("Sunlight response at nearby gages")
+        window.transient(self.winfo_toplevel())
+        frame = ttk.Frame(window, padding=(16, 14))
+        frame.pack(fill="both", expand=True)
+        frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            frame,
+            text="Sunlight response at nearby gages",
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            frame,
+            text=(
+                "Rise over normal: \u00b0C of water-temperature rise per sunshine-hour above "
+                "the stream's own rolling normal. Shared regional air and sunshine series; "
+                "sorted strongest first. Screening heuristic, not a calibrated model."
+            ),
+            style="Muted.TLabel",
+            wraplength=560,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 8))
+
+        table_frame, table = treeview(
+            frame,
+            {
+                "site": ("Site", 88, "w"),
+                "name": ("Name", 200, "w"),
+                "km": ("km", 52, "e"),
+                "sun_r": ("Sun r", 58, "e"),
+                "air_r": ("Air r", 58, "e"),
+                "slope": ("\u00b0C/sun-h", 72, "e"),
+                "lag": ("Lag d", 54, "center"),
+                "pairs": ("Pairs", 54, "e"),
+            },
+            height=min(10, max(3, len(peers))),
+            stretch_last=False,
+        )
+        table_frame.grid(row=2, column=0, sticky="nsew")
+        frame.rowconfigure(2, weight=1)
+        set_row_tone(table)
+        for peer in peers:
+            name = peer.name[:34] + (" (this site)" if peer.this_site else "")
+            if peer.error:
+                table.insert(
+                    "",
+                    "end",
+                    values=(peer.site_number, f"{name} \u2014 {peer.error[:40]}", "", "", "", "", "", ""),
+                    tags=("muted",),
+                )
+                continue
+            table.insert(
+                "",
+                "end",
+                values=(
+                    peer.site_number,
+                    name,
+                    f"{peer.distance_km:.0f}" if peer.distance_km else "0",
+                    f"{peer.sun_r:+.2f}" if peer.sun_r is not None else "\u2014",
+                    f"{peer.air_r:+.2f}" if peer.air_r is not None else "\u2014",
+                    (
+                        f"{peer.slope_c_per_hour:+.2f}"
+                        if peer.slope_c_per_hour is not None
+                        else "\u2014"
+                    ),
+                    f"{peer.lag_days:+d}" if peer.lag_days is not None else "\u2014",
+                    str(peer.pairs),
+                ),
+            )
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=3, column=0, sticky="e", pady=(10, 0))
+        ttk.Button(buttons, text="Close", command=window.destroy).pack(side="right")
 
     def _clear(self, message: str) -> None:
         self._analysis = None
