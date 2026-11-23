@@ -111,7 +111,8 @@ make test / make gui-test / make run       # same, if you like make
   `thermal.joint_anomaly_fit` regresses water anomalies on air and sunshine **jointly** (lag grid
   0–5 per driver) so each slope holds the other constant; the view shows it in a split strip and
   `thermal.sunlight_peers` ranks nearby streams by the held-constant sunshine slope
-  (`loader.load_thermal_peers`: one USGS 00010 request per neighbour, shared regional drivers).
+  (`loader.load_thermal_peers`: one USGS 00010 request per neighbour, shared regional drivers;
+  a wide ≈1.5° bbox and up to eight nearest candidates because few gages report temperature).
   The PDF thermal page has the same split table and region comparison. MMW is recent-only;
   `series_water_c` converts °F sensors.
 - **Temperature** — `temperature_stats.py` integrates hours above a threshold from IV samples

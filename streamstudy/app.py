@@ -963,7 +963,9 @@ class StreamStudyApp:
         _label, base_water, air, sun = inputs
         base = self.bundle.site
         window = self.analysis_window.clipped()
-        radius = 0.5
+        # Few gages report water temperature, so cast a wide net: ~1.5 deg
+        # (~150 km north-south) and up to eight nearest candidates.
+        radius = 1.5
         bbox = (
             base.longitude - radius,
             base.latitude - radius,
@@ -972,11 +974,11 @@ class StreamStudyApp:
         )
 
         def work():
-            sites = self.providers["usgs"].search_sites(bbox=bbox, limit=80)
+            sites = self.providers["usgs"].search_sites(bbox=bbox, limit=160)
             candidates = [site for site in sites if site.number != base.number]
             candidates.sort(key=lambda candidate: self._distance_km(base, candidate))
             fetched = self.loader.load_thermal_peers(
-                candidates, window=window, max_sites=6
+                candidates, window=window, max_sites=8
             )
             peers = [
                 (

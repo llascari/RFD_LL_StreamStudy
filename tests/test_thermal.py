@@ -171,6 +171,16 @@ class SunlightPeersTest(unittest.TestCase):
         self.assertEqual(rows[1].error, "boom")
         self.assertEqual(rows[0].this_site, True)
 
+    def test_gage_without_water_temperature_is_explained(self):
+        sun = random_days([5.0 + (index % 9) for index in range(40)])
+        air = random_days([12.0 + (index % 7) for index in range(40)])
+        rows = sunlight_peers(
+            "A", "BASE", {day: 10.0 + v * 0.1 for day, v in sun.items()}, air, sun,
+            [("B", "DRY GAGE", 40.0, {}, air, sun, "")],
+        )
+        self.assertEqual(rows[1].error, "no water temperature in window")
+        self.assertIsNone(rows[1].slope_c_per_hour)
+
 
 class PartialPearsonTest(unittest.TestCase):
     def test_formula(self):

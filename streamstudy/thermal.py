@@ -503,6 +503,8 @@ def sunlight_peers(
         *,
         this_site: bool = False,
     ) -> SunlightPeer:
+        if not error and not water:
+            error = "no water temperature in window"
         if error:
             return SunlightPeer(
                 site_number=number,

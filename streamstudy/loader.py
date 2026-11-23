@@ -604,12 +604,13 @@ class BundleLoader:
         candidates: list[Site],
         *,
         window: TimeWindow,
-        max_sites: int = 6,
+        max_sites: int = 8,
     ) -> list[tuple[Site, dict[date, float], str]]:
         """Daily water temperature for nearby gages, one USGS request each.
 
         Returns ``(site, water_daily, error)`` per candidate; a failed fetch
         keeps its slot with an error message so the comparison can explain it.
+        Few gages report water temperature, so callers cast a wide net.
         Drivers (air, sunshine) are shared with the base site's series, so only
         water temperature is fetched.
         """

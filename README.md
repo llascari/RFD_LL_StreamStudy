@@ -173,9 +173,11 @@ constant* and *air +1 °C → water +y °C, sun constant*, each with a partial c
 
 **Compare nearby…** in the Temp Drivers tab asks the cross-stream question: for roughly the same
 sun exposure, which creek responds most? It fetches daily water temperature for the nearest USGS
-gages (about 0.5° bbox, up to six), gives every stream the same joint anomaly regression, and
-ranks them by the **held-constant sunshine slope** (°C of water rise per sunshine-hour above
-normal, air constant), strongest first, with the partial correlations alongside.
+gages — a wide ≈1.5° (≈150 km) net because few gages report water temperature, up to eight
+nearest candidates — gives every stream the same joint anomaly regression, and ranks them by the
+**held-constant sunshine slope** (°C of water rise per sunshine-hour above normal, air
+constant), strongest first, with the partial correlations alongside. Gages without temperature
+in the window are listed as such instead of being silently dropped.
 
 ## Historical PDF reports
 

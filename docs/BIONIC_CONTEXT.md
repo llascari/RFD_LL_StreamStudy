@@ -33,9 +33,9 @@ Current capabilities:
   mean — anomaly fits describe day-to-day drivers instead of the seasonal cycle; cards show the
   slope in °C per driver unit). A **driver split** regresses water anomalies on air and sunshine
   jointly so each slope holds the other constant (partial correlations shown). **Compare
-  nearby…** fetches USGS `00010` daily water temperature for the nearest gages and ranks streams
-  by the held-constant sunshine slope (°C of water rise per sunshine-hour above normal, air
-  constant), strongest first.
+  nearby…** fetches USGS `00010` daily water temperature for the nearest gages (wide ≈1.5° bbox,
+  up to eight candidates — few gages report temperature) and ranks streams by the held-constant
+  sunshine slope (°C of water rise per sunshine-hour above normal, air constant), strongest first.
 - Navigable OpenStreetMap view with lagged cross-correlation between streams and rain.
 - Historical PDF reports: single gage or radius region, up to 10 years, flow + temperature +
   extreme days + temperature correlations + schematic map + sources/limitations.
