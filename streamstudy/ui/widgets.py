@@ -86,13 +86,20 @@ def treeview(
     columns: dict[str, tuple[str, int, str]],
     *,
     height: int = 8,
+    stretch_last: bool = True,
 ) -> tuple[ttk.Frame, ttk.Treeview]:
     """Create a scrollable treeview. ``columns`` maps key -> (heading, width, anchor)."""
     frame = ttk.Frame(parent)
     tree = ttk.Treeview(frame, columns=tuple(columns), show="headings", height=height)
+    last = list(columns)[-1]
     for key, (heading, width, anchor) in columns.items():
         tree.heading(key, text=heading)
-        tree.column(key, width=width, anchor=anchor, stretch=(key == list(columns)[-1]))
+        tree.column(
+            key,
+            width=width,
+            anchor=anchor,
+            stretch=stretch_last and key == last,
+        )
     scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=scroll.set)
     tree.grid(row=0, column=0, sticky="nsew")

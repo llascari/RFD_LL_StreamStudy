@@ -84,6 +84,9 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(day, date(2024, 1, 1))
         self.assertGreaterEqual(millimetres, 0.0)
         self.assertEqual(archive.timezone, "America/New_York")
+        self.assertEqual(len(archive.weather), 21)
+        self.assertIsNotNone(archive.weather[0].mean_c)
+        self.assertIsNotNone(archive.weather[0].sunshine_hours)
 
     def test_provider_archive_parameters(self):
         client = StaticClient()

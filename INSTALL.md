@@ -250,6 +250,7 @@ Still stuck? Open an issue at
 - **Hydrograph** — discharge and gage height charts
 - **Sensors** — nearby Monitor My Watershed / EnviroDIY temperature and relative depth sensors
 - **Temperature** — water vs air temperature, sunshine, and hours above a settable threshold
+- **Temp Drivers** — air/sunshine correlations with water temperature for USGS and MMW sensors
 - **Precipitation** — gauges vs models day by day
 - **Rainfall → Flow** — historical storms vs flow response, plus a forecast scenario
 - **Map & Correlation** — clickable gages, drag to pan, scroll to zoom, cross-correlations

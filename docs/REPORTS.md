@@ -17,6 +17,8 @@ threshold duration, extreme days, and the storms that produced them.
    - **History window** — 24 h, 7 d, 30 d, 90 d, 1 y, 2 y, 5 y, 10 y, or custom `YYYY-MM-DD` dates.
    - **Nearby region** — tick it to add every active USGS discharge gage within the radius.
      Radius is 1–100 km; at most 12 sites are included (the loaded gage is always first).
+   - **Include MMW sensors** — also look for a nearby Monitor My Watershed water-temperature
+     sensor; on by default, useful for gages whose USGS record lacks `00010`.
    - **Temperature threshold** — the water-temperature duration threshold (default 20 °C); the
      same value is saved for the Temperature tab.
    - **PDF file** — the default is your home folder, named with the site and window.
@@ -25,7 +27,7 @@ threshold duration, extreme days, and the storms that produced them.
 5. When it finishes, **Open report** launches your PDF viewer. Sites that failed after two retries
    are listed on the references page instead of aborting the whole job.
 
-A single-gage report is normally 4 pages. A region report adds 2 pages per nearby creek plus a
+A single-gage report is normally 5 pages. A region report adds 3 pages per nearby creek plus a
 region table on the cover.
 
 ## What is inside
@@ -35,7 +37,8 @@ region table on the cover.
 | Cover | Site name/number/coordinates, window, radius, threshold, precipitation source, a plain-language warning, summary cards, schematic locator map, region table |
 | Flow | Mean/median/min/max, 10th–90th percentiles, daily hydrograph with rain bars, highest and lowest daily flows with dates and that day's rain |
 | Temperature | Water (USGS `00010`, daily mean) and air (ERA5) series, threshold line, mean/min/max with dates, days and hours above the threshold, longest warm run, warmest/coldest water days, sunshine, and the fitted rainfall–runoff response with the largest storms |
-| Region site | Compact flow page (hydrograph, extremes, data notes) and a temperature/response page |
+| Temperature correlations | Air and sunshine vs water temperature at lags −5 to +5 days for **USGS and nearby Monitor My Watershed** sensors; signed scatter plots with regression lines, best r/lag, paired days, confidence and the full lag table |
+| Region site | Compact flow page, a temperature/response page, and a temperature-correlation page (3 pages per creek) |
 | References | USGS, CoCoRaHS, Open-Meteo/ERA5 and OSM links; methods; health warnings; how to reproduce |
 
 The locator map is **schematic** (no basemap image). It preserves relative positions and labels
@@ -52,6 +55,10 @@ each USGS site number; the app's interactive OpenStreetMap tab is the place to e
 - **Air temperature and sunshine** — Open-Meteo ERA5 daily mean/max/min and sunshine duration.
 - **Threshold duration** — daily means above the threshold count as 24 h each. This is a screening
   statistic; short-window work in the Temperature tab integrates 15-minute samples instead.
+- **Temperature correlations** — daily water temperature is paired with Open-Meteo daily air
+  temperature and sunshine at lags from −5 to +5 days. Positive lag means water follows the driver.
+  Pearson r and the best absolute lag are reported for each USGS/MMW water source. MMW sensors are
+  recent-only; correlation is not causation.
 - **Storm response** — storms are ≥ 0.10 in rain; baseflow is a smoothed 7-day rolling minimum;
   a rise is the peak above baseflow within four days. The fitted rate, lag percentiles and
   recession half-life describe the observed events; they are not calibrated hydrologic parameters.
@@ -60,8 +67,9 @@ each USGS site number; the app's interactive OpenStreetMap tab is the place to e
 
 ## Long region reports
 
-Each site needs a USGS daily-values request and an ERA5 archive request. Ten years × twelve sites is
-a lot of public API traffic, so the app:
+Each site needs a USGS daily-values request, an ERA5 archive request, and (when enabled) a
+Monitor My Watershed site/sensor lookup. Ten years × twelve sites is a lot of public API traffic,
+so the app:
 
 - includes the loaded gage first, then nearby gages sorted by distance;
 - makes **two retries** per site with a short delay;

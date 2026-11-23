@@ -1,9 +1,9 @@
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from streamstudy.analysis_window import TimeWindow
 from streamstudy.loader import BundleLoader, ReportCancelled, _haversine_km
-from streamstudy.models import HistoryBundle, Site
+from streamstudy.models import HistoryBundle, MmwSite, Sample, Series, Site
 from streamstudy.providers.openmeteo import ArchiveData
 
 START = date(2025, 1, 1)
@@ -59,6 +59,35 @@ class FakeReportLoader(BundleLoader):
         return make_history(site)
 
 
+class FakeMmw:
+    def nearest_sites(self, *args, **kwargs):
+        return [
+            MmwSite(
+                identifier="TEST_SENSOR",
+                name="TEST SENSOR",
+                latitude=43.0,
+                longitude=-77.0,
+                distance_km=1.0,
+            )
+        ]
+
+    def sensors_for_site(self, site_code, *, days=30):
+        samples = []
+        for offset in range(10):
+            day = START + timedelta(days=offset)
+            samples.append(
+                Sample(
+                    datetime.combine(day, time(12), tzinfo=timezone.utc),
+                    10.0 + offset,
+                )
+            )
+        return {
+            "temperature": Series(
+                "temperature", "Water temperature", "\u00b0C", tuple(samples), "MMW"
+            )
+        }
+
+
 class HaversineTest(unittest.TestCase):
     def test_zero_and_known_distance(self):
         self.assertEqual(_haversine_km(43.0, -77.0, 43.0, -77.0), 0.0)
@@ -81,6 +110,15 @@ class ReportSiteTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             loader.load_report_site(make_site("1", 43.0, -77.0), WINDOW, retries=1)
         self.assertEqual(loader.history_calls, 2)
+
+    def test_report_site_includes_mmw_temperature(self):
+        loader = FakeReportLoader()
+        loader.mmw = FakeMmw()
+        report = loader.load_report_site(
+            make_site("1", 43.0, -77.0), WINDOW, include_mmw=True
+        )
+        self.assertTrue(report.mmw_name.startswith("TEST SENSOR"))
+        self.assertTrue(report.mmw_temp_daily)
 
     def test_cancel_is_checked_before_work(self):
         loader = FakeReportLoader()

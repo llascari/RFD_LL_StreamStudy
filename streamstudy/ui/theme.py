@@ -125,7 +125,7 @@ def apply_theme(root: tk.Tk) -> None:
         background=SURFACE,
         foreground=MUTED,
         borderwidth=0,
-        padding=(16, 8),
+        padding=(10, 8),
         lightcolor=SURFACE,
         darkcolor=SURFACE,
         bordercolor=SURFACE,

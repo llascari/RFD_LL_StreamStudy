@@ -190,15 +190,16 @@ class PdfReportTest(unittest.TestCase):
         self.assertTrue(written.exists())
         self.assertTrue(payload.startswith(b"%PDF-1.4"))
         self.assertIn(b"%%EOF", payload)
-        # cover, flow, temperature, references
-        self.assertEqual(payload.count(b"/Type /Page "), 4)
+        # cover, flow, temperature, correlations, references
+        self.assertEqual(payload.count(b"/Type /Page "), 5)
         self.assertIn(b"0423205010", payload)
 
     def test_region_report_adds_pages_and_site(self):
         _written, payload = self._write(make_report(region=True), "region.pdf")
-        self.assertEqual(payload.count(b"/Type /Page "), 6)
+        self.assertEqual(payload.count(b"/Type /Page "), 8)
         self.assertIn(b"04232050", payload)
         self.assertIn(b"Region report", payload)
+        self.assertIn(b"Temperature correlations", payload)
 
     def test_report_survives_missing_temperature_and_flow(self):
         site = make_site("00000001", "DRY CREEK", 43.0, -77.0)

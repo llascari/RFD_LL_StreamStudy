@@ -29,17 +29,19 @@ feeds them**.
 | --- | --- |
 | ![Sensors tab](docs/sensors.png) | ![Temperature tab](docs/temperature.png) |
 
-| Precipitation | Rainfall → Flow |
+| Temp Drivers | Precipitation |
 | --- | --- |
-| ![Precipitation tab](docs/precipitation.png) | ![Rainfall to flow tab](docs/response.png) |
+| ![Temp Drivers tab](docs/thermal.png) | ![Precipitation tab](docs/precipitation.png) |
 
-| Forecast | Map & Correlation |
+| Rainfall → Flow | Forecast |
 | --- | --- |
-| ![Forecast tab](docs/forecast.png) | ![Map and correlation tab](docs/map.png) |
+| ![Rainfall to flow tab](docs/response.png) | ![Forecast tab](docs/forecast.png) |
 
-| Flow forecast (10 days) | Site finder |
+| Map & Correlation | Flow forecast (10 days) |
 | --- | --- |
-| ![Flow forecast tab](docs/flow_forecast.png) | ![Site finder](docs/sites.png) |
+| ![Map and correlation tab](docs/map.png) | ![Flow forecast tab](docs/flow_forecast.png) |
+
+![Site finder](docs/sites.png)
 
 | Historical PDF report |
 | --- |
@@ -55,6 +57,10 @@ feeds them**.
 - **Temperature** — water vs air temperature, daily sunshine and clear-day counts, water↔air and
   water↔sunshine correlations, and **time above a settable threshold** for a **selectable analysis
   window** (24 h / 7 d / 30 d / 90 d / 1 y / 2 y / 5 y / 10 y or custom dates)
+- **Temp Drivers** — for gages with water temperature (USGS **or Monitor My Watershed**),
+  correlate daily water temperature with **air temperature** and **sunshine** at lags from −5 to
+  +5 days: best r/lag, paired-day counts, signed scatter plots with regression lines, and the full
+  lag table. A positive lag means water follows the driver. The same analysis is in the PDF report.
 - **Precipitation comparison** — daily bars and a table comparing up to four sources:
   on-site USGS precipitation (parameter `00045` where available), the nearest CoCoRaHS volunteer
   gauge, Open-Meteo's gridded model, and NWS ASOS observations
@@ -77,7 +83,8 @@ feeds them**.
 - **Historical PDF reports** — **File → Generate PDF report…** writes a multi-page report for the
   loaded creek or every creek within a chosen radius (up to 12 sites), using up to **10 years** of
   daily flow and temperature: hydrographs, rainfall, temperature statistics and threshold duration,
-  highest/lowest flow days, storm evidence, a schematic locator map, sources and limitations.
+  air/sunshine-to-water correlations for USGS and MMW sensors, highest/lowest flow days, storm
+  evidence, a schematic locator map, sources and limitations.
   Long region jobs run in the background with per-site retries, a live progress bar, an elapsed
   timer and current-stage message, a stall hint and a Cancel button. See **[docs/REPORTS.md](docs/REPORTS.md)**.
 - **Site finder** — search active USGS surface-water gages by state, within ~50 km of the
@@ -130,6 +137,21 @@ The horizon is capped at 10 days because that is roughly where public weather fo
 being useful. The band is wide when the history is noisy, and that is the point: it is a screening
 estimate, not a flood forecast.
 
+## Water temperature drivers
+
+The **Temp Drivers** tab asks a narrower question than the flow model: *how strongly does water
+temperature track the weather?* It works for any gage with water temperature — USGS daily values
+or a nearby **Monitor My Watershed** sensor — and pairs it with Open-Meteo daily **air temperature**
+and **sunshine**. For lags from −5 to +5 days it reports Pearson r, the best absolute lag, the
+number of paired days, and a blunt confidence label. Two signed scatter plots show the relationship
+with a least-squares line, and the table lists every lag.
+
+A **positive lag means water follows the driver**: today's air paired with tomorrow's water is
++1 day. Air usually leads by zero to two days; sunshine can lead by more because the stream
+integrates heat over time. MMW sensors only expose the portal's recent record, so their correlation
+is a short-window view; USGS daily values can cover the full 10-year analysis window. Correlation
+is not causation, and the weather drivers are gridded model estimates rather than on-site gauges.
+
 ## Historical PDF reports
 
 Choose **File → Generate PDF report…** to produce a shareable PDF for the loaded gage. You pick a
@@ -143,6 +165,8 @@ a radius; with a radius, every active USGS discharge gage inside it becomes its 
 - a **temperature** page: daily water (USGS) and air (ERA5) temperatures, threshold line, days and
   hours above the threshold, longest warm run, warmest/coldest days, sunshine, and the fitted
   rainfall-runoff response with the largest storms;
+- a **temperature-correlation** page: air/sunshine vs water at lags −5 to +5 days, signed scatter
+  plots and a summary for every USGS and Monitor My Watershed water source;
 - a **region** table and one flow + temperature section per nearby creek;
 - **sources, methods, health warnings and reproduction steps**.
 
@@ -308,6 +332,19 @@ saved metrics and preferences, and keeps the current site loaded.
 
 Override the file location with `--settings PATH` or `$STREAMSTUDY_SETTINGS`.
 
+## Continuing in Bionic on another machine
+
+Bionic project registration and chat history live under `~/.lmstudio`, not in this repository.
+The repo carries a portable context pack instead:
+
+- [docs/BIONIC_CONTEXT.md](docs/BIONIC_CONTEXT.md) — current state, constraints, architecture,
+  data-source traps and recent work.
+- [docs/BIONIC_PROMPT.md](docs/BIONIC_PROMPT.md) — paste-ready prompt for a fresh Bionic chat.
+
+Open this folder as a project on the other machine, start a chat, paste that prompt, and the agent
+will read `AGENTS.md` plus the context pack before touching code. This is safer than copying the
+local LM Studio database, which contains chat history and machine-specific paths.
+
 ## Updating, reverting and forking
 
 The app checks GitHub once after launch and shows **“Update available (commit …)”** in the footer
@@ -333,7 +370,7 @@ provider API ──► parse_*() ──► models (Site, Series, FlowEvent, Resp
                                    │
                 StreamStudyApp (worker thread → queue → Tk main thread)
                                    │
-  HomeView · HydroView · SensorsView · TemperatureView · PrecipView ·
+  HomeView · HydroView · SensorsView · TemperatureView · ThermalView · PrecipView ·
   ResponseView · MapView · ForecastView · FlowForecastView · SitesView
                                    │
           report.py ──► pdf.py (stdlib PDF writer)
@@ -365,6 +402,7 @@ RFD_LL_StreamStudy/
 │   ├── response.py        # rainfall-runoff model: baseflow, storms, fit, 10-day prediction
 │   ├── correlation.py     # lagged cross-correlation of regional flows and rain
 │   ├── temperature_stats.py # hours above a threshold, clear-day counts
+│   ├── thermal.py         # water vs air/sunshine correlations and lag curves
 │   ├── ranking.py         # "best nearby gage" scoring and hub suggestion
 │   ├── updates.py         # GitHub commit/VERSION update check
 │   ├── analysis_window.py # shared preset/custom analysis window
@@ -374,10 +412,10 @@ RFD_LL_StreamStudy/
 │   ├── http.py            # cached, retrying urllib client
 │   ├── settings.py        # JSON settings (recent sites, analysis window, map)
 │   ├── providers/         # usgs · nws · openmeteo · cocorahs · monitormywatershed
-│   └── ui/                # theme, charts, widgets, ten tab views, map_view, report_dialog
+│   └── ui/                # theme, charts, widgets, eleven tab views, map_view, report_dialog
 ├── tests/
 │   ├── fixtures/          # trimmed real API responses
-│   └── test_*.py          # 171 tests (providers, models, forecast, report/PDF, region loader, Tk)
+│   └── test_*.py          # 181 tests (providers, models, thermal, report/PDF, region loader, Tk)
 ├── docs/                  # screenshots, HOW_THIS_WAS_MADE.md, REPORTS.md, UPDATING.md
 ├── INSTALL.md             # beginner-friendly setup for Windows/macOS/Linux
 ├── VERSION                # human-readable release version used by the update check

@@ -19,6 +19,7 @@ from .providers.nws import NwsProvider
 from .providers.openmeteo import OpenMeteoProvider
 from .providers.usgs import UsgsProvider
 from .report import ReportData, ReportSite
+from .thermal import series_water_c
 
 
 class ReportCancelled(Exception):
@@ -269,9 +270,12 @@ class BundleLoader:
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"CoCoRaHS history: {exc}")
 
+        archive = None
+        archive_attempted = False
         if not precip:
+            archive_attempted = True
             if stage is not None:
-                stage("Open-Meteo ERA5 precipitation")
+                stage("Open-Meteo ERA5 precipitation and weather")
             try:
                 archive = self.openmeteo.fetch_archive(
                     site.latitude, site.longitude, start, end
@@ -284,6 +288,33 @@ class BundleLoader:
                 source = "Open-Meteo ERA5"
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Open-Meteo archive: {exc}")
+
+        # Air temperature and sunshine come from the same archive response as
+        # the ERA5 rain when it was used; otherwise fetch the archive once more.
+        if archive is None and not archive_attempted:
+            if stage is not None:
+                stage("Open-Meteo ERA5 air temperature and sunshine")
+            try:
+                archive = self.openmeteo.fetch_archive(
+                    site.latitude, site.longitude, start, end
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"Open-Meteo weather archive: {exc}")
+
+        air_mean: dict[date, float] = {}
+        air_max: dict[date, float] = {}
+        air_min: dict[date, float] = {}
+        sunshine: dict[date, float] = {}
+        if archive is not None:
+            for day in archive.weather:
+                if day.mean_c is not None:
+                    air_mean[day.day] = day.mean_c
+                if day.max_c is not None:
+                    air_max[day.day] = day.max_c
+                if day.min_c is not None:
+                    air_min[day.day] = day.min_c
+                if day.sunshine_hours is not None:
+                    sunshine[day.day] = day.sunshine_hours
 
         if stage is not None:
             stage("Fitting rainfall-runoff response")
@@ -299,6 +330,10 @@ class BundleLoader:
             precip=tuple(sorted(precip.items())),
             water_temp_daily=water_temp,
             flow_daily=flow,
+            air_mean=air_mean,
+            air_max=air_max,
+            air_min=air_min,
+            sunshine=sunshine,
             errors=errors,
         )
 
@@ -308,6 +343,7 @@ class BundleLoader:
         window: TimeWindow,
         *,
         coco_station: str | None = None,
+        include_mmw: bool = True,
         retries: int = 2,
         delay: float = 0.0,
         cancel=None,
@@ -340,38 +376,43 @@ class BundleLoader:
                 )
                 if not history.flow_daily:
                     raise RuntimeError("USGS returned no daily flow values")
-                air_mean: dict[date, float] = {}
-                air_max: dict[date, float] = {}
-                air_min: dict[date, float] = {}
-                sunshine: dict[date, float] = {}
                 errors = list(history.errors)
+                mmw_name = ""
+                mmw_temp: dict[date, float] = {}
+                mmw = getattr(self, "mmw", None)
+                if include_mmw and mmw is not None:
+                    if progress is not None:
+                        progress(0.72, "Checking nearby Monitor My Watershed sensors")
+                    try:
+                        candidates = mmw.nearest_sites(
+                            site.latitude, site.longitude, limit=6, max_km=60.0
+                        )
+                        for candidate in candidates:
+                            found = mmw.sensors_for_site(candidate.identifier, days=30)
+                            if "temperature" not in found:
+                                continue
+                            values = series_water_c(found["temperature"])
+                            if len(values) >= 5:
+                                mmw_temp = values
+                                mmw_name = (
+                                    f"{candidate.name or candidate.identifier} "
+                                    f"({candidate.distance_km:.0f} km)"
+                                )
+                                break
+                    except Exception as exc:  # noqa: BLE001 - report continues without sensors
+                        errors.append(f"Monitor My Watershed: {exc}")
                 if progress is not None:
-                    progress(0.78, "Fetching ERA5 air temperature and sunshine")
-                try:
-                    archive = self.openmeteo.fetch_archive(
-                        site.latitude, site.longitude, window.start, window.end
-                    )
-                    for day in archive.weather:
-                        if day.mean_c is not None:
-                            air_mean[day.day] = day.mean_c
-                        if day.max_c is not None:
-                            air_max[day.day] = day.max_c
-                        if day.min_c is not None:
-                            air_min[day.day] = day.min_c
-                        if day.sunshine_hours is not None:
-                            sunshine[day.day] = day.sunshine_hours
-                except Exception as exc:  # noqa: BLE001 - report continues without air temp
-                    errors.append(f"Air temperature archive: {exc}")
-                if progress is not None:
-                    progress(0.95, "Preparing report data")
+                    progress(0.9, "Preparing report data")
                     progress(1.0, "Site ready")
                 return ReportSite(
                     site=site,
                     history=history,
-                    air_mean=air_mean,
-                    air_max=air_max,
-                    air_min=air_min,
-                    sunshine=sunshine,
+                    air_mean=dict(history.air_mean),
+                    air_max=dict(history.air_max),
+                    air_min=dict(history.air_min),
+                    sunshine=dict(history.sunshine),
+                    mmw_name=mmw_name,
+                    mmw_temp_daily=mmw_temp,
                     errors=tuple(errors),
                 )
             except ReportCancelled:
@@ -400,6 +441,7 @@ class BundleLoader:
         max_sites: int = 6,
         threshold_c: float = 20.0,
         coco_station: str | None = None,
+        include_mmw: bool = True,
         retries: int = 2,
         delay: float = 0.0,
         progress=None,
@@ -467,6 +509,7 @@ class BundleLoader:
             primary_site,
             window,
             coco_station=coco_station,
+            include_mmw=include_mmw,
             retries=retries,
             delay=delay,
             cancel=cancel,
@@ -496,6 +539,7 @@ class BundleLoader:
                 report = self.load_report_site(
                     candidate,
                     window,
+                    include_mmw=include_mmw,
                     retries=retries,
                     delay=delay,
                     cancel=cancel,

@@ -3,6 +3,13 @@
 Guidance for AI coding agents (and humans) working on StreamStudy. Read this before changing
 code; it encodes the project's constraints and the traps that have bitten us.
 
+## Resuming on another machine
+
+Bionic project metadata and chat history live outside the repository. To continue on another
+machine, open this folder as a Bionic project and use [docs/BIONIC_PROMPT.md](docs/BIONIC_PROMPT.md)
+together with [docs/BIONIC_CONTEXT.md](docs/BIONIC_CONTEXT.md). `AGENTS.md` is the always-read
+contract; the context pack carries the current state.
+
 ## What this is
 
 An **experimental** desktop app for exploring USGS stream gages, NWS forecasts, Open-Meteo /
@@ -44,6 +51,7 @@ streamstudy/
   correlation.py    lagged log-flow Pearson, flow↔flow and flow↔rain
   analysis_window.py  shared preset/custom analysis window (1d … 10y)
   temperature_stats.py  hours above a threshold in a window, clear days
+  thermal.py        water vs air/sunshine correlations, lag curves, MMW conversion
   report.py         historical statistics + multi-page report composition
   pdf.py            stdlib-only PDF 1.4 writer (text, lines, rects, polylines, circles)
   ranking.py        nearby-gage scoring and hub suggestion
@@ -52,7 +60,7 @@ streamstudy/
   http.py           cached urllib client (text/bytes/json), retries on 5xx only
   settings.py       JSON settings: recent sites, windows, map radius
   credits.py        attribution text shown in About
-  ui/               theme, charts, map_view, ten tab views, widgets, report_dialog.py
+  ui/               theme, charts, map_view, eleven tab views, widgets, report_dialog.py
 tests/              fixtures + unit/smoke tests (unittest, no pytest required)
 scripts/            capture_fixtures.py (refresh fixtures from live APIs)
 ```
@@ -82,8 +90,9 @@ make test / make gui-test / make run       # same, if you like make
   tail after the last QPF time; `predict_horizon()` convolves each increment with the fitted lag
   and half-life. Keep the horizon ≤ 10 days, assert p10 ≤ p50 ≤ p90, and keep the analog window
   (±35 % of forecast rain) honest. The tab re-renders from `_finish_history`, not only `apply_bundle`.
-- **Region report job** — one USGS DV request + one ERA5 request per site, two retries, failures
-  collected in `ReportData.failures`, cancel polled between sites/retries. The progress callback
+- **Region report job** — one USGS DV request + one ERA5 request per site, optional nearby MMW
+  sensor fetch, two retries, failures collected in `ReportData.failures`, cancel polled between
+  sites/retries. The progress callback
   gets `(fraction, message)` with `Site N of M · number: stage` text (USGS daily flow,
   precipitation, ERA5 air, fitting, retry, ready); the dialog adds its own elapsed timer and
   spinner. Never let one bad gage abort the run.
@@ -95,6 +104,10 @@ make test / make gui-test / make run       # same, if you like make
   (`settings.map_zoom`), not a radius preset: `app.zoom_map(±1)` steps it, `fit_map_to_sites`
   frames the visible gages, and `recenter_map` keeps the current zoom. Tiles are fetched in the
   worker (`fetch_tiles`) and decoded on the main thread. Clicking calls `app.load_site`.
+- **Temp Drivers** — `thermal.py` correlates daily water temperature (USGS or MMW) with daily
+  air temperature and sunshine at lags −5..+5. A positive lag means water follows the driver.
+  `ui/thermal_view.py` shows USGS/MMW source choices, signed scatters and the lag table; the PDF
+  thermal page uses the same module. MMW is recent-only; `series_water_c` converts °F sensors.
 - **Temperature** — `temperature_stats.py` integrates hours above a threshold from IV samples
   (gap capped at 2 h) inside the shared analysis window and uses daily means for long windows;
   `ui/temperature_view.py` also correlates

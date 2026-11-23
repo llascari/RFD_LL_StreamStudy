@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rfd-stream-study"
-version = "0.3.0"
+version = "0.4.0"
 description = "Experimental desktop explorer for USGS stream gages, NWS forecasts, precipitation sources and rainfall-runoff response."
 readme = "README.md"
 requires-python = ">=3.10"

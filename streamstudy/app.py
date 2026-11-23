@@ -51,6 +51,7 @@ from .ui.response_view import ResponseView
 from .ui.sensors_view import SensorsView
 from .ui.sites_view import SitesView
 from .ui.temperature_view import TemperatureView
+from .ui.thermal_view import ThermalView
 from .ui.theme import (
     ACCENT,
     BAD,
@@ -271,6 +272,7 @@ class StreamStudyApp:
         self.hydro_view = HydroView(self.notebook, self)
         self.sensors_view = SensorsView(self.notebook, self)
         self.temperature_view = TemperatureView(self.notebook, self)
+        self.thermal_view = ThermalView(self.notebook, self)
         self.precip_view = PrecipView(self.notebook, self)
         self.response_view = ResponseView(self.notebook, self)
         self.map_view = MapView(self.notebook, self)
@@ -282,6 +284,7 @@ class StreamStudyApp:
             (self.hydro_view, "Hydrograph"),
             (self.sensors_view, "Sensors"),
             (self.temperature_view, "Temperature"),
+            (self.thermal_view, "Temp Drivers"),
             (self.precip_view, "Precipitation"),
             (self.response_view, "Rainfall \u2192 Flow"),
             (self.map_view, "Map & Correlation"),
@@ -433,6 +436,8 @@ class StreamStudyApp:
         selected = self.notebook.select()
         if selected == str(self.response_view):
             self._ensure_history()
+        elif selected == str(self.thermal_view) and self.bundle is not None:
+            self.thermal_view.render(self.bundle)
         elif selected == str(self.map_view):
             self._ensure_map()
 
@@ -531,6 +536,7 @@ class StreamStudyApp:
         save_settings(self.settings, self.settings_path)
         self.response_view.render(self.bundle)
         self.temperature_view.render(self.bundle)
+        self.thermal_view.render(self.bundle)
         self.flow_forecast_view.render(self.bundle)
         fit = result.fit
         # Only narrate the fit on tabs that actually show the history; otherwise
@@ -1132,6 +1138,7 @@ class StreamStudyApp:
             self.hydro_view,
             self.sensors_view,
             self.temperature_view,
+            self.thermal_view,
             self.precip_view,
             self.forecast_view,
             self.flow_forecast_view,

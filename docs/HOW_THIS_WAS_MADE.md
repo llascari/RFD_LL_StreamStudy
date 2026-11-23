@@ -48,6 +48,8 @@ polished marketing: the dead ends are included.
 | 20 | “Generate a report on a particular creek, using up to 10 years of history — detailed temperatures, extreme flows, graphs, maps, references, PDF.” | `report.py` computes flow/temperature summaries and extreme days; `pdf.py` is a ~160-line stdlib PDF writer; **File → Generate PDF report…** produces cover, flow, temperature and reference pages. | `b76ed64` |
 | 21 | “Also generate it for the whole region by radius, with retries and resilience while showing progress and potential stalls.” | `loader.load_report_region()` searches USGS by bbox + haversine, loads each site with two retries, records failures and continues; `ReportDialog` shows a determinate progress bar, elapsed/stall hint, Cancel and Open report. | `b76ed64` |
 | 22 | “Update the screenshots/docs — they look stale — and keep the how-this-was-made doc current.” | Regenerated all ten tabs from the live app, added a live report cover preview and `docs/REPORTS.md`, and updated README, AGENTS.md and CREDITS.md. | `b76ed64` |
+| 23 | “Add a tab that analyzes the sunlight-to-water and air-to-water temperature correlations, including Monitor My Watershed sites; include it in the PDF report.” | `thermal.py` computes Pearson r and the full lag curve; **Temp Drivers** switches between USGS and MMW water sources, shows signed scatters with regression lines and a lag table; the PDF gains a temperature-correlation page and MMW fetches. | this round |
+| 24 | “Save project context in the repo so I can open it in Bionic on another computer.” | `docs/BIONIC_CONTEXT.md`, `docs/BIONIC_PROMPT.md`, README section and AGENTS pointer. Bionic’s local session database is deliberately not copied; the repo carries the portable brief. | this round |
 
 The first two commits are a different app. That is fine: the prompt changed the domain, and the
 right move was to pivot rather than bolt features onto the wrong program.
@@ -98,6 +100,7 @@ right move was to pivot rather than bolt features onto the wrong program.
 | Reports had no air-temperature history | the ERA5 archive request only asked for precipitation | request daily mean/max/min temperature and sunshine, and treat the fields as optional |
 | Report dialog sat on “Starting…” | the idle poll loop stopped scheduling `after` before Generate was pressed | start polling in `_start`, then add a live elapsed timer, spinner and per-source stage messages |
 | Chart hover showed an empty grey box | the canvas text item was given `spacing1`, a Text-widget-only option, so Tk raised and skipped the label | remove the option; assert the tooltip text in a Tk test and render it once |
+| Report dialog hung during tests after adding MMW | the worker read a Tk `BooleanVar` (`self.mmw_var.get()`) off the main thread | read every Tk variable before starting the worker; keep workers to pure data |
 
 ## A prompt recipe you can copy
 
@@ -117,15 +120,15 @@ If you want to try this:
 
 ## By the numbers
 
-- **10 tabs**: Overview, Hydrograph, Sensors, Temperature, Precipitation, Rainfall → Flow,
-  Map & Correlation, Forecast, Flow forecast, Site finder
+- **11 tabs**: Overview, Hydrograph, Sensors, Temperature, Temp Drivers, Precipitation,
+  Rainfall → Flow, Map & Correlation, Forecast, Flow forecast, Site finder
 - **5 data networks + 1 tile service**: USGS NWIS (IV/DV/site/OGC), NWS `api.weather.gov`,
   Open-Meteo forecast/archive, CoCoRaHS CSV export, Monitor My Watershed ODM2, OpenStreetMap
 - **2 output formats**: the live Tk UI and a multi-page PDF (single gage or radius region)
-- **171 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
+- **181 tests**, offline, stdlib `unittest`; CI on Python 3.10/3.12/3.13 plus a headless Xvfb job
 - **Zero third-party runtime dependencies** — Tk charts, `urllib`, `tk.PhotoImage` for map tiles,
   and a hand-written PDF 1.4 writer
-- **~13,600 lines** of Python including tests, **30 commits** at the time of writing
+- **~15,000 lines** of Python including tests, **31 commits** at the time of writing
 
 ## Credit
 

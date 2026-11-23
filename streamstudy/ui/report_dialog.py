@@ -147,6 +147,12 @@ class ReportDialog(tk.Toplevel):
         )
         self.max_sites_spin.pack(side="left", padx=(4, 2))
         ttk.Label(region_row, text="sites").pack(side="left")
+        self.mmw_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            region_row,
+            text="include MMW sensors",
+            variable=self.mmw_var,
+        ).pack(side="left", padx=(14, 0))
 
         ttk.Label(frame, text="Temperature threshold").grid(
             row=5, column=0, sticky="w", pady=4
@@ -289,6 +295,7 @@ class ReportDialog(tk.Toplevel):
             )
             return
         include_region = bool(self.region_var.get())
+        include_mmw = bool(self.mmw_var.get())
         if abs(threshold - self.app.temperature_threshold) > 1e-9:
             self.app.set_temperature_threshold(threshold)
         self._output = path
@@ -329,6 +336,7 @@ class ReportDialog(tk.Toplevel):
                     max_sites=max_sites,
                     threshold_c=threshold,
                     coco_station=coco,
+                    include_mmw=include_mmw,
                     retries=2,
                     delay=1.0,
                     progress=progress,

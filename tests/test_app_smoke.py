@@ -114,6 +114,7 @@ class AppSmokeTest(unittest.TestCase):
                 "Hydrograph",
                 "Sensors",
                 "Temperature",
+                "Temp Drivers",
                 "Precipitation",
                 "Rainfall \u2192 Flow",
                 "Map & Correlation",
@@ -286,6 +287,35 @@ class AppSmokeTest(unittest.TestCase):
         self.assertGreaterEqual(len(view.temp_chart._all_series), 2)
         self.assertIn("%", view.stat_vars["above"].get())
         self.assertIn("r ", view.compare_var.get())
+
+    def test_thermal_view_renders_correlations(self):
+        from datetime import date, timedelta
+
+        from streamstudy.models import WeatherDay
+
+        if self.app.bundle.history is not None:
+            self.app.bundle.history.water_temp_daily = {}
+            self.app.bundle.history.air_mean = {}
+            self.app.bundle.history.sunshine = {}
+        days = [date.today() - timedelta(days=index) for index in range(20)]
+        self.app.bundle.water_temp_daily = {
+            day: 9.0 + 0.4 * (19 - index) for index, day in enumerate(days)
+        }
+        self.app.bundle.weather_days = tuple(
+            WeatherDay(
+                day,
+                mean_c=4.0 + 0.6 * (19 - index),
+                sunshine_hours=3.0 + 0.3 * (19 - index),
+            )
+            for index, day in enumerate(days)
+        )
+        self.app.thermal_view.render(self.app.bundle)
+        view = self.app.thermal_view
+        self.assertIn("USGS", view.source_var.get())
+        self.assertIsNotNone(view._analysis)
+        self.assertGreaterEqual(len(view.air_scatter.find_all()), 1)
+        self.assertGreaterEqual(len(view.sun_scatter.find_all()), 1)
+        self.assertEqual(len(view.table.get_children()), 11)
 
     def test_reset_settings(self):
         from unittest.mock import patch

@@ -14,10 +14,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
+from .analysis import nice_step
 from .analysis_window import TimeWindow
 from .models import FlowEvent, ResponseFit, Site, utc_now
 from .pdf import PAGE_H, PAGE_W, PdfDocument, PdfPage
 from .response import percentile
+from .thermal import DriverFit, WaterSource, build_thermal_analysis
 
 INK = (0.11, 0.13, 0.17)
 MUTED = (0.42, 0.46, 0.52)
@@ -46,6 +48,8 @@ class ReportSite:
     air_max: dict[date, float] = field(default_factory=dict)
     air_min: dict[date, float] = field(default_factory=dict)
     sunshine: dict[date, float] = field(default_factory=dict)
+    mmw_name: str = ""
+    mmw_temp_daily: dict[date, float] = field(default_factory=dict)
     distance_km: float = 0.0
     errors: tuple[str, ...] = ()
 
@@ -655,6 +659,7 @@ def _cover(document: PdfDocument, data: ReportData) -> PdfPage:
         for line in (
             "Flow hydrograph, distribution and the highest and lowest daily flows.",
             "Water and air temperature, time above the threshold and the warmest/coldest days.",
+            "Air and sunshine correlations with water temperature, including MMW sensors.",
             "The storms that produced the largest rises, with the fitted response parameters.",
             "Sources, methods and honest limitations.",
         ):
@@ -928,6 +933,324 @@ def _temperature_page(
     return page
 
 
+def _thermal_sources(site_report: ReportSite) -> list[WaterSource]:
+    sources: list[WaterSource] = []
+    history = site_report.history
+    water = getattr(history, "water_temp_daily", {}) or {}
+    if water:
+        sources.append(WaterSource("usgs", "USGS 00010", dict(water)))
+    if site_report.mmw_temp_daily:
+        name = site_report.mmw_name or "sensor"
+        sources.append(
+            WaterSource(
+                "mmw",
+                f"MMW {name}",
+                dict(site_report.mmw_temp_daily),
+                note="recent record only",
+                recent_only=True,
+            )
+        )
+    return sources
+
+
+def _signed_range(values: list[float]) -> tuple[float, float]:
+    low, high = min(values), max(values)
+    if high - low < 1e-9:
+        low -= 1.0
+        high += 1.0
+    pad = (high - low) * 0.08
+    return low - pad, high + pad
+
+
+def _thermal_scatter(
+    page: PdfPage,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    fit: DriverFit,
+    *,
+    title: str,
+    x_label: str,
+) -> None:
+    page.text(x, y, title, size=9, bold=True, colour=INK)
+    plot_x, plot_top = x + 34, y + 14
+    plot_w = w - 40
+    plot_bottom = y + h - 26
+    plot_h = plot_bottom - plot_top
+    points = _decimate([(float(px), float(py)) for px, py in fit.points], 320)
+    page.line(plot_x, plot_bottom, plot_x + plot_w, plot_bottom, colour=RULE, width=0.7)
+    page.line(plot_x, plot_top, plot_x, plot_bottom, colour=RULE, width=0.7)
+    if len(points) < 2:
+        page.text(
+            plot_x + 6,
+            plot_top + plot_h / 2,
+            "No paired daily values in this window",
+            size=8,
+            colour=MUTED,
+        )
+        return
+
+    xmin, xmax = _signed_range([point[0] for point in points])
+    ymin, ymax = _signed_range([point[1] for point in points])
+    xstep = nice_step(xmax - xmin, 4)
+    ystep = nice_step(ymax - ymin, 4)
+
+    for index in range(5):
+        fraction = index / 4.0
+        value = ymin + fraction * (ymax - ymin)
+        grid_y = plot_bottom - fraction * plot_h
+        page.line(
+            plot_x,
+            grid_y,
+            plot_x + plot_w,
+            grid_y,
+            colour=(0.90, 0.91, 0.93),
+            width=0.5,
+        )
+        page.text(plot_x - 3, grid_y + 2.5, _fmt(value, 0), size=6.5, colour=MUTED)
+    for index in range(5):
+        fraction = index / 4.0
+        value = xmin + fraction * (xmax - xmin)
+        grid_x = plot_x + fraction * plot_w
+        page.line(
+            grid_x,
+            plot_top,
+            grid_x,
+            plot_bottom,
+            colour=(0.90, 0.91, 0.93),
+            width=0.5,
+        )
+        page.text(grid_x - 8, plot_bottom + 9, _fmt(value, 1), size=6.5, colour=MUTED)
+
+    def px(value: float) -> float:
+        return plot_x + (value - xmin) / (xmax - xmin) * plot_w
+
+    def py(value: float) -> float:
+        return plot_bottom - (value - ymin) / (ymax - ymin) * plot_h
+
+    if xmin < 0 < xmax:
+        page.line(px(0), plot_top, px(0), plot_bottom, colour=RULE, width=0.7)
+    if ymin < 0 < ymax:
+        page.line(plot_x, py(0), plot_x + plot_w, py(0), colour=RULE, width=0.7)
+    if fit.fit is not None:
+        page.line(
+            px(fit.fit[0][0]),
+            py(fit.fit[0][1]),
+            px(fit.fit[1][0]),
+            py(fit.fit[1][1]),
+            colour=ACCENT,
+            width=1.0,
+        )
+    for point_x, point_y in points:
+        page.circle(px(point_x), py(point_y), 1.2, fill=(0.25, 0.55, 0.85))
+    page.text(plot_x + plot_w, plot_bottom + 22, x_label, size=6.5, colour=MUTED)
+    page.text(plot_x - 24, plot_top - 3, "water C", size=6.5, colour=MUTED)
+
+
+def _thermal_page(
+    document: PdfDocument,
+    data: ReportData,
+    site_report: ReportSite,
+    *,
+    page_number: int,
+) -> PdfPage:
+    page = document.add_page()
+    start, end = data.window.start, data.window.end
+    sources = _thermal_sources(site_report)
+    analyses = [
+        (
+            source,
+            build_thermal_analysis(
+                source.daily,
+                site_report.air_mean,
+                site_report.sunshine,
+                max_lag=5,
+                min_pairs=5,
+            ),
+        )
+        for source in sources
+    ]
+    primary_source, primary = analyses[0] if analyses else (None, None)
+
+    page.text(
+        MARGIN,
+        46,
+        site_report.site.name,
+        size=14,
+        bold=True,
+        colour=INK,
+    )
+    page.text(
+        MARGIN,
+        61,
+        f"Temperature correlations  |  {start.isoformat()} to {end.isoformat()}  |  "
+        "water vs air and sunshine",
+        size=8.5,
+        colour=MUTED,
+    )
+    y = 78
+    card_w = (CONTENT_W - 12) / 4
+    if primary is not None:
+        air = primary.air.best
+        sun = primary.sun.best
+    else:
+        air = sun = None
+    _card(
+        page,
+        MARGIN,
+        y,
+        card_w,
+        52,
+        "Air -> water",
+        f"r {air.r:+.2f}" if air is not None else "n/a",
+        f"lag {air.lag_days:+d} d  n {air.n}" if air is not None else "no paired days",
+    )
+    _card(
+        page,
+        MARGIN + card_w + 4,
+        y,
+        card_w,
+        52,
+        "Sunshine -> water",
+        f"r {sun.r:+.2f}" if sun is not None else "n/a",
+        f"lag {sun.lag_days:+d} d  n {sun.n}" if sun is not None else "no paired days",
+    )
+    _card(
+        page,
+        MARGIN + 2 * (card_w + 4),
+        y,
+        card_w,
+        52,
+        "Water sources",
+        str(len(sources)),
+        (
+            " + ".join("USGS" if source.key == "usgs" else "MMW" for source in sources)
+            if sources
+            else "none"
+        ),
+    )
+    _card(
+        page,
+        MARGIN + 3 * (card_w + 4),
+        y,
+        card_w,
+        52,
+        "Water days",
+        f"{primary.water_days:,}" if primary is not None else "0",
+        primary_source.label if primary_source is not None else "no water record",
+    )
+    y += 66
+
+    half = (CONTENT_W - 12) / 2
+    _thermal_scatter(
+        page,
+        MARGIN,
+        y,
+        half,
+        185,
+        primary.air if primary is not None else DriverFit(driver="air temperature"),
+        title="Water vs air temperature",
+        x_label="air C",
+    )
+    _thermal_scatter(
+        page,
+        MARGIN + half + 12,
+        y,
+        half,
+        185,
+        primary.sun if primary is not None else DriverFit(driver="sunshine"),
+        title="Water vs sunshine",
+        x_label="sunshine h",
+    )
+    y += 203
+
+    y = _heading(page, y, "Correlation summary", size=10)
+    rows = []
+    for source, analysis in analyses:
+        for fit in (analysis.air, analysis.sun):
+            best = fit.best
+            rows.append(
+                [
+                    source.label[:34],
+                    fit.driver,
+                    f"{best.r:+.2f}" if best is not None else "n/a",
+                    f"{best.lag_days:+d}" if best is not None else "n/a",
+                    str(best.n) if best is not None else "0",
+                    fit.confidence,
+                ]
+            )
+    if rows:
+        y = _table(
+            page,
+            MARGIN,
+            y,
+            [168, 88, 50, 44, 40, 70],
+            ["Water source", "Driver", "Best r", "Lag d", "Pairs", "Confidence"],
+            rows,
+            size=7.5,
+            row_h=12,
+        )
+    else:
+        page.text(
+            MARGIN,
+            y,
+            "No daily water temperature for USGS or Monitor My Watershed in this window.",
+            size=8.5,
+            colour=MUTED,
+        )
+        y += 16
+
+    if primary is not None:
+        y += 4
+        y = _heading(page, y, "Correlation by lag", size=10)
+        air_rows = {lag: (r, n) for lag, r, n in primary.air.by_lag}
+        sun_rows = {lag: (r, n) for lag, r, n in primary.sun.by_lag}
+        lag_rows = []
+        for lag in range(-5, 6):
+            air_r, air_n = air_rows.get(lag, (None, 0))
+            sun_r, sun_n = sun_rows.get(lag, (None, 0))
+            lag_rows.append(
+                [
+                    f"{lag:+d}" if lag else "0",
+                    f"{air_r:+.2f}" if air_r is not None else "n/a",
+                    str(air_n),
+                    f"{sun_r:+.2f}" if sun_r is not None else "n/a",
+                    str(sun_n),
+                ]
+            )
+        y = _table(
+            page,
+            MARGIN,
+            y,
+            [58, 64, 52, 64, 52],
+            ["Lag (d)", "Air r", "Air n", "Sun r", "Sun n"],
+            lag_rows,
+            size=7.5,
+            row_h=10.5,
+        )
+        y += 6
+        page.text(
+            MARGIN,
+            y,
+            "Positive lag means water temperature follows the driver. Pearson r on daily means; "
+            "correlation is not causation and the drivers are gridded weather estimates.",
+            size=8,
+            colour=MUTED,
+        )
+    else:
+        page.text(
+            MARGIN,
+            y,
+            "Air temperature and sunshine are unavailable, so no correlations can be computed.",
+            size=8.5,
+            colour=MUTED,
+        )
+
+    _footer(page, page_number)
+    return page
+
+
 def _references_page(document: PdfDocument, data: ReportData, *, page_number: int) -> PdfPage:
     page = document.add_page()
     y = 46
@@ -950,6 +1273,14 @@ def _references_page(document: PdfDocument, data: ReportData, *, page_number: in
         "Air temperature and sunshine: Open-Meteo ERA5 archive (daily mean/max/min temperature and "
         "sunshine duration). Streamflow forecasts elsewhere in the app blend NWS QPF with Open-Meteo; "
         "this historical report does not include a forecast."
+    )
+    y = _paragraph(page, MARGIN, y, 104, text, size=9, leading=12.5) + 4
+    text = (
+        "Temperature correlations: USGS daily water temperature and nearby Monitor My Watershed "
+        "sensor means (recent record only) are paired with daily air temperature and sunshine at "
+        "lags from -5 to +5 days. The report shows Pearson r at the best absolute lag and the full "
+        "lag curve. A positive lag means water temperature follows the driver. Correlation is not "
+        "causation; the drivers are gridded weather estimates, not gauges at the creek."
     )
     y = _paragraph(page, MARGIN, y, 104, text, size=9, leading=12.5) + 4
     text = (
@@ -1002,11 +1333,14 @@ def write_report(data: ReportData, path: str | Path) -> Path:
     _cover(document, data)
     _flow_page(document, data, data.primary, page_number=2, compact=False)
     _temperature_page(document, data, data.primary, page_number=3)
-    number = 4
+    _thermal_page(document, data, data.primary, page_number=4)
+    number = 5
     for site_report in data.region:
         _flow_page(document, data, site_report, page_number=number, compact=True)
         number += 1
         _temperature_page(document, data, site_report, page_number=number)
+        number += 1
+        _thermal_page(document, data, site_report, page_number=number)
         number += 1
     _references_page(document, data, page_number=number)
     return document.save(path)

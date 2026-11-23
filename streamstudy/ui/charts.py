@@ -335,6 +335,216 @@ def _format_tick(value: float, step: float) -> str:
     return f"{value:.2f}"
 
 
+def _padded_range(values: list[float]) -> tuple[float, float]:
+    low, high = min(values), max(values)
+    if high - low < 1e-9:
+        low -= 1.0
+        high += 1.0
+    pad = (high - low) * 0.08
+    return low - pad, high + pad
+
+
+def _tick_values(low: float, high: float, step: float) -> list[float]:
+    start = math.floor(low / step) * step
+    values: list[float] = []
+    value = start
+    while value <= high + step * 1e-6 and len(values) < 14:
+        if value >= low - step * 1e-6:
+            values.append(value)
+        value += step
+    return values
+
+
+class SignedScatterChart(tk.Canvas):
+    """Scatter plot with signed axes, an optional regression line and hover."""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        *,
+        height: int = 260,
+        title: str = "",
+        x_unit: str = "",
+        y_unit: str = "",
+        empty_text: str = "No paired days yet",
+    ) -> None:
+        super().__init__(
+            master, height=height, bg=SURFACE, highlightthickness=0, bd=0, takefocus=0
+        )
+        self._points: list[tuple[float, float]] = []
+        self._fit: tuple[tuple[float, float], tuple[float, float]] | None = None
+        self._title = title
+        self._x_unit = x_unit
+        self._y_unit = y_unit
+        self._empty = empty_text
+        self._hover: tuple[float, float] | None = None
+        self._geometry: tuple[float, float, float, float, float, float, float, float] | None = None
+
+        self.bind("<Configure>", lambda _event: self.redraw())
+        self.bind("<Motion>", self._on_motion)
+        self.bind("<Leave>", lambda _event: self._set_hover(None))
+
+    def set_data(
+        self,
+        points: list[tuple[float, float]] | tuple[tuple[float, float], ...],
+        *,
+        fit: tuple[tuple[float, float], tuple[float, float]] | None = None,
+        title: str | None = None,
+        empty_text: str | None = None,
+    ) -> None:
+        self._points = list(points)
+        self._fit = fit
+        if title is not None:
+            self._title = title
+        if empty_text is not None:
+            self._empty = empty_text
+        self._hover = None
+        self.redraw()
+
+    def _pixel(self, x_value: float, y_value: float) -> tuple[float, float]:
+        geom = self._geometry
+        if geom is None:
+            return 0.0, 0.0
+        left, top, plot_w, plot_h, xmin, xmax, ymin, ymax = geom
+        x = left + (x_value - xmin) / (xmax - xmin) * plot_w
+        y = top + (ymax - y_value) / (ymax - ymin) * plot_h
+        return x, y
+
+    def _on_motion(self, event: tk.Event) -> None:
+        self._set_hover(self._nearest(event.x, event.y))
+
+    def _nearest(self, x: float, y: float) -> tuple[float, float] | None:
+        geom = self._geometry
+        if geom is None:
+            return None
+        best = None
+        best_distance = 18.0**2
+        for point in self._points:
+            px, py = self._pixel(*point)
+            distance = (px - x) ** 2 + (py - y) ** 2
+            if distance < best_distance:
+                best = point
+                best_distance = distance
+        return best
+
+    def _set_hover(self, point: tuple[float, float] | None) -> None:
+        if point == self._hover:
+            return
+        self._hover = point
+        self.redraw()
+
+    def redraw(self) -> None:
+        self.delete("all")
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        family = font_family(self)
+        left, top, right, bottom = 54, 30, 14, 42
+        plot_w = max(1, width - left - right)
+        plot_h = max(1, height - top - bottom)
+
+        if len(self._points) < 2:
+            self.create_text(
+                width / 2, height / 2, text=self._empty, fill=MUTED, font=(family, 10)
+            )
+            if self._title:
+                self.create_text(
+                    left, 12, text=self._title, anchor="w", fill=TEXT, font=(family, 10, "bold")
+                )
+            return
+
+        xs = [point[0] for point in self._points]
+        ys = [point[1] for point in self._points]
+        xmin, xmax = _padded_range(xs)
+        ymin, ymax = _padded_range(ys)
+        self._geometry = (left, top, plot_w, plot_h, xmin, xmax, ymin, ymax)
+
+        xstep = nice_step(xmax - xmin, 5)
+        ystep = nice_step(ymax - ymin, 5)
+        for value in _tick_values(xmin, xmax, xstep):
+            x, _y = self._pixel(value, ymin)
+            self.create_line(x, top, x, top + plot_h, fill=GRID)
+            self.create_text(
+                x,
+                top + plot_h + 10,
+                text=_format_tick(value, xstep),
+                fill=MUTED,
+                font=(family, 8),
+                anchor="n",
+            )
+        for value in _tick_values(ymin, ymax, ystep):
+            _x, y = self._pixel(xmin, value)
+            self.create_line(left, y, left + plot_w, y, fill=GRID)
+            self.create_text(
+                left - 8,
+                y,
+                text=_format_tick(value, ystep),
+                anchor="e",
+                fill=MUTED,
+                font=(family, 8),
+            )
+
+        if xmin < 0 < xmax:
+            x, _y = self._pixel(0.0, ymin)
+            self.create_line(x, top, x, top + plot_h, fill=BORDER, width=1)
+        if ymin < 0 < ymax:
+            _x, y = self._pixel(xmin, 0.0)
+            self.create_line(left, y, left + plot_w, y, fill=BORDER, width=1)
+        self.create_line(left, top + plot_h, left + plot_w, top + plot_h, fill=BORDER)
+        self.create_line(left, top, left, top + plot_h, fill=BORDER)
+
+        if self._fit is not None:
+            self.create_line(
+                *self._pixel(*self._fit[0]),
+                *self._pixel(*self._fit[1]),
+                fill=ACCENT,
+                width=1.3,
+                dash=(5, 4),
+            )
+
+        for point in self._points:
+            x, y = self._pixel(*point)
+            self.create_oval(x - 2.2, y - 2.2, x + 2.2, y + 2.2, fill=SERIES_COLORS["discharge"], outline="")
+
+        if self._hover is not None:
+            x, y = self._pixel(*self._hover)
+            self.create_oval(
+                x - 5, y - 5, x + 5, y + 5, outline=SERIES_COLORS["gage"], width=1.5
+            )
+            label = f"{self._hover[0]:.1f} {self._x_unit} -> {self._hover[1]:.1f} {self._y_unit}"
+            box_w = len(label) * 5.4 + 12
+            box_x = x + 10 if x + 10 + box_w < width - 6 else x - 10 - box_w
+            box_x = max(6, box_x)
+            self.create_rectangle(
+                box_x, top + 2, box_x + box_w, top + 20, fill=SURFACE_ALT, outline=BORDER
+            )
+            self.create_text(
+                box_x + 6,
+                top + 11,
+                text=label,
+                anchor="w",
+                fill=TEXT,
+                font=(family, 8),
+            )
+
+        if self._title:
+            self.create_text(
+                left, 12, text=self._title, anchor="w", fill=TEXT, font=(family, 10, "bold")
+            )
+        if self._y_unit:
+            self.create_text(
+                left + plot_w, 12, text=self._y_unit, anchor="e", fill=MUTED, font=(family, 9)
+            )
+        if self._x_unit:
+            self.create_text(
+                left + plot_w,
+                top + plot_h + 26,
+                text=self._x_unit,
+                anchor="e",
+                fill=MUTED,
+                font=(family, 8),
+            )
+
+
 class ScatterChart(tk.Canvas):
     """Scatter plot with an optional fitted line and one highlighted point."""
 
