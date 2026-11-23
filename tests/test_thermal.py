@@ -139,29 +139,32 @@ class AnomalyFitTest(unittest.TestCase):
 
 
 class SunlightPeersTest(unittest.TestCase):
+    def _drivers(self, count=40):
+        sun = random_days([5.0 + ((index * 7) % 11) * 0.8 for index in range(count)])
+        air = random_days([12.0 + ((index * 5) % 13) * 0.7 for index in range(count)])
+        return air, sun
+
     def test_peers_ranked_by_partial_sunlight_slope(self):
-        sun_values = [5.0 + ((index * 7) % 11) * 0.8 for index in range(40)]
-        air_values = [12.0 + ((index * 5) % 13) * 0.7 for index in range(40)]
-        sun = random_days(sun_values)
-        air = random_days(air_values)
+        air, sun = self._drivers()
         base_water = {day: 2.0 * value for day, value in sun.items()}
-        flat_water = random_days([8.0] * 40)
+        weak_water = {day: 8.0 + 0.1 * value for day, value in sun.items()}
         rows = sunlight_peers(
             "A",
             "BASE CREEK",
             base_water,
             air,
             sun,
-            [("B", "FLAT CREEK", 3.0, flat_water, air, sun, "")],
+            [("B", "WEAK CREEK", 3.0, weak_water, air, sun, "")],
         )
         self.assertEqual(rows[0].site_number, "A")
         self.assertTrue(rows[0].this_site)
         # Water is exactly 2x sunshine, so the held-constant sun slope is exact.
         self.assertAlmostEqual(rows[0].slope_c_per_hour, 2.0, places=6)
         self.assertAlmostEqual(rows[0].sun_r, 1.0, places=6)
+        self.assertAlmostEqual(rows[0].mean_c, math.fsum(2.0 * v for v in sun.values()) / len(sun))
+        # A weakly sunlight-driven creek ranks below the strong one.
         self.assertEqual(rows[1].site_number, "B")
-        # A flat creek has no anomaly signal, so it gets no slope.
-        self.assertIsNone(rows[1].slope_c_per_hour)
+        self.assertLess(rows[1].slope_c_per_hour, rows[0].slope_c_per_hour)
 
     def test_peer_errors_keep_their_slot(self):
         rows = sunlight_peers(
@@ -171,15 +174,27 @@ class SunlightPeersTest(unittest.TestCase):
         self.assertEqual(rows[1].error, "boom")
         self.assertEqual(rows[0].this_site, True)
 
-    def test_gage_without_water_temperature_is_explained(self):
-        sun = random_days([5.0 + (index % 9) for index in range(40)])
-        air = random_days([12.0 + (index % 7) for index in range(40)])
+    def test_gages_without_valid_temperature_are_excluded(self):
+        air, sun = self._drivers()
+        base_water = {day: 10.0 + v * 0.1 for day, v in sun.items()}
+        empty = {}
+        too_short = dict(list(base_water.items())[:3])
+        stuck = random_days([7.4] * 40)
         rows = sunlight_peers(
-            "A", "BASE", {day: 10.0 + v * 0.1 for day, v in sun.items()}, air, sun,
-            [("B", "DRY GAGE", 40.0, {}, air, sun, "")],
+            "A",
+            "BASE",
+            base_water,
+            air,
+            sun,
+            [
+                ("B", "EMPTY", 1.0, empty, air, sun, ""),
+                ("C", "SHORT", 2.0, too_short, air, sun, ""),
+                ("D", "STUCK TEST UNIT", 3.0, stuck, air, sun, ""),
+            ],
         )
-        self.assertEqual(rows[1].error, "no water temperature in window")
-        self.assertIsNone(rows[1].slope_c_per_hour)
+        # Only the base remains: dataless, short and stuck peers are dropped.
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0].this_site)
 
 
 class PartialPearsonTest(unittest.TestCase):

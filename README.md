@@ -172,12 +172,15 @@ constant* and *air +1 °C → water +y °C, sun constant*, each with a partial c
 ### Compare nearby…
 
 **Compare nearby…** in the Temp Drivers tab asks the cross-stream question: for roughly the same
-sun exposure, which creek responds most? It fetches daily water temperature for the nearest USGS
-gages — a wide ≈1.5° (≈150 km) net because few gages report water temperature, up to eight
-nearest candidates — gives every stream the same joint anomaly regression, and ranks them by the
-**held-constant sunshine slope** (°C of water rise per sunshine-hour above normal, air
-constant), strongest first, with the partial correlations alongside. Gages without temperature
-in the window are listed as such instead of being silently dropped.
+sun exposure, which creek responds most? Because few gages report water temperature, it casts a
+wide net — ≈1.5° (≈150 km) — and keeps fetching the nearest candidates (up to ~20 requests)
+until eight temperature-bearing gages are found. Nearby **Monitor My Watershed sensors** join
+the comparison too (recent record only; the loaded site's own sensor is skipped). Every stream
+gets the same joint anomaly regression, and rows are ranked by the **held-constant sunshine
+slope** (°C of water rise per sunshine-hour above normal, air constant) with the partial
+correlations alongside. A **Mean °C** column hints at each stream's thermal class (coldwater
+vs warmwater), and gages without valid temperature data — empty or stuck test units — are
+excluded rather than polluting the list.
 
 ## Historical PDF reports
 

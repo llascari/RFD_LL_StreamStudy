@@ -26,7 +26,7 @@ from .http import HttpClient
 from .loader import BundleLoader, LoadOptions
 from .models import DataBundle
 from .providers import build_providers
-from .thermal import sunlight_peers
+from .thermal import series_water_c, sunlight_peers
 from .updates import (
     UpdateStatus,
     check_for_update,
@@ -963,6 +963,14 @@ class StreamStudyApp:
         _label, base_water, air, sun = inputs
         base = self.bundle.site
         window = self.analysis_window.clipped()
+        # If the selected water source is the bundle's own MMW sensor, do not
+        # list that same sensor again as a "peer".
+        own_mmw = (
+            self.bundle.mmw_site.identifier
+            if self.bundle.mmw_site is not None and _label.startswith("MMW")
+            else ""
+        )
+        window_days = (window.end - window.start).days + 1
         # Few gages report water temperature, so cast a wide net: ~1.5 deg
         # (~150 km north-south) and up to eight nearest candidates.
         radius = 1.5
@@ -992,6 +1000,44 @@ class StreamStudyApp:
                 )
                 for site, water, error in fetched
             ]
+            # Nearby Monitor My Watershed sensors join the comparison as well;
+            # they are recent-only, so a short fetch is all they can offer.
+            mmw = getattr(self.loader, "mmw", None)
+            if mmw is not None:
+                try:
+                    sensors = mmw.nearest_sites(
+                        base.latitude, base.longitude, limit=6, max_km=60.0
+                    )
+                except Exception:  # noqa: BLE001 - USGS peers still compare
+                    sensors = []
+                for sensor in sensors:
+                    if sensor.identifier == own_mmw:
+                        continue
+                    try:
+                        found = mmw.sensors_for_site(
+                            sensor.identifier, days=min(max(window_days, 14), 30)
+                        )
+                    except Exception:  # noqa: BLE001 - skip unusable sensors
+                        continue
+                    temperature = found.get("temperature")
+                    if temperature is None:
+                        continue
+                    daily = {
+                        day: value
+                        for day, value in series_water_c(temperature).items()
+                        if window.start <= day <= window.end
+                    }
+                    peers.append(
+                        (
+                            sensor.identifier,
+                            f"MMW {sensor.name or sensor.identifier}",
+                            sensor.distance_km,
+                            daily,
+                            air,
+                            sun,
+                            "",
+                        )
+                    )
             return sunlight_peers(base.number, base.name, base_water, air, sun, peers)
 
         self.set_status("Comparing sunlight response at nearby gages\u2026", tone="accent")

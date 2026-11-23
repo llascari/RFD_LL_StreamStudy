@@ -438,9 +438,11 @@ class ThermalView(ttk.Frame):
             text=(
                 "Rise over normal, air held constant: \u00b0C of water-temperature rise per "
                 "sunshine-hour above the stream's own rolling normal, from a joint regression "
-                "with air temperature. Sun pr / Air pr are the partial correlations. Shared "
-                "regional drivers; sorted strongest first. Screening heuristic, not a "
-                "calibrated model."
+                "with air temperature. Sun pr / Air pr are the partial correlations. Mean \u00b0C "
+                "hints at each stream's thermal class (coldwater streams run cooler). Gages "
+                "without valid temperature in the window are excluded; MMW sensors are "
+                "recent-only. Shared regional drivers; sorted strongest first. Screening "
+                "heuristic, not a calibrated model."
             ),
             style="Muted.TLabel",
             wraplength=560,
@@ -450,28 +452,39 @@ class ThermalView(ttk.Frame):
         table_frame, table = treeview(
             frame,
             {
-                "site": ("Site", 88, "w"),
-                "name": ("Name", 200, "w"),
-                "km": ("km", 52, "e"),
-                "sun_r": ("Sun pr", 58, "e"),
-                "air_r": ("Air pr", 58, "e"),
-                "slope": ("\u00b0C/sun-h", 72, "e"),
-                "lag": ("Lag a/s", 58, "center"),
-                "pairs": ("Pairs", 54, "e"),
+                "site": ("Site", 84, "w"),
+                "name": ("Name", 190, "w"),
+                "km": ("km", 48, "e"),
+                "mean": ("Mean \u00b0C", 60, "e"),
+                "sun_r": ("Sun pr", 54, "e"),
+                "air_r": ("Air pr", 54, "e"),
+                "slope": ("\u00b0C/sun-h", 68, "e"),
+                "lag": ("Lag a/s", 56, "center"),
+                "pairs": ("Pairs", 50, "e"),
             },
-            height=min(10, max(3, len(peers))),
+            height=min(12, max(3, len(peers))),
             stretch_last=False,
         )
         table_frame.grid(row=2, column=0, sticky="nsew")
         frame.rowconfigure(2, weight=1)
         set_row_tone(table)
         for peer in peers:
-            name = peer.name[:34] + (" (this site)" if peer.this_site else "")
+            name = peer.name[:32] + (" (this site)" if peer.this_site else "")
             if peer.error:
                 table.insert(
                     "",
                     "end",
-                    values=(peer.site_number, f"{name} \u2014 {peer.error[:40]}", "", "", "", "", "", ""),
+                    values=(
+                        peer.site_number,
+                        f"{name} \u2014 {peer.error[:40]}",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ),
                     tags=("muted",),
                 )
                 continue
@@ -482,6 +495,7 @@ class ThermalView(ttk.Frame):
                     peer.site_number,
                     name,
                     f"{peer.distance_km:.0f}" if peer.distance_km else "0",
+                    f"{peer.mean_c:.1f}" if peer.mean_c is not None else "\u2014",
                     f"{peer.sun_r:+.2f}" if peer.sun_r is not None else "\u2014",
                     f"{peer.air_r:+.2f}" if peer.air_r is not None else "\u2014",
                     (

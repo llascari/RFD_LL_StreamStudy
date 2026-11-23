@@ -605,25 +605,36 @@ class BundleLoader:
         *,
         window: TimeWindow,
         max_sites: int = 8,
+        min_days: int = 8,
+        max_fetches: int = 20,
     ) -> list[tuple[Site, dict[date, float], str]]:
         """Daily water temperature for nearby gages, one USGS request each.
 
-        Returns ``(site, water_daily, error)`` per candidate; a failed fetch
-        keeps its slot with an error message so the comparison can explain it.
-        Few gages report water temperature, so callers cast a wide net.
-        Drivers (air, sunshine) are shared with the base site's series, so only
-        water temperature is fetched.
+        Few gages report water temperature, so this fetches nearest-first and
+        keeps going past dataless candidates until ``max_sites`` gages with at
+        least ``min_days`` of daily values have been found or ``max_fetches``
+        requests have been made. Returns ``(site, water_daily, error)`` for
+        every candidate tried; the comparison filters the rest. Drivers (air,
+        sunshine) are shared with the base site's series, so only water
+        temperature is fetched.
         """
         clipped = window.clipped()
         results: list[tuple[Site, dict[date, float], str]] = []
-        for site in candidates[: max(1, int(max_sites))]:
+        valid = 0
+        for site in candidates:
+            if len(results) >= max_fetches or valid >= max_sites:
+                break
             try:
                 daily = self.usgs.fetch_daily(
                     site.number, clipped.start, clipped.end, ("00010",)
                 )
-                results.append((site, dict(daily.get("00010", {})), ""))
+                water = dict(daily.get("00010", {}))
             except Exception as exc:  # noqa: BLE001 - skip unusable candidates
                 results.append((site, {}, str(exc)))
+                continue
+            results.append((site, water, ""))
+            if len(water) >= min_days:
+                valid += 1
         return results
 
     def load_regional(

@@ -90,13 +90,15 @@ class SunlightPeer:
     ``slope_c_per_hour`` is the **partial** sunshine slope from the joint
     anomaly fit: °C of water rise per sunshine-hour above normal, with air
     temperature held constant. ``sun_r``/``air_r`` are the matching partial
-    correlations.
+    correlations. ``mean_c`` is the stream's mean water temperature in the
+    window — a rough hint at its thermal class (coldwater vs warmwater).
     """
 
     site_number: str
     name: str
     distance_km: float
     water_days: int = 0
+    mean_c: float | None = None
     sun_r: float | None = None
     air_r: float | None = None
     slope_c_per_hour: float | None = None
@@ -107,6 +109,17 @@ class SunlightPeer:
     confidence: str = "n/a"
     this_site: bool = False
     error: str = ""
+
+
+MIN_PEER_DAYS = 8
+
+
+def _peer_has_valid_water(water: dict, min_days: int) -> bool:
+    """Enough non-constant daily values to fit (test units are empty or stuck)."""
+    if len(water) < min_days:
+        return False
+    values = list(water.values())
+    return max(values) - min(values) > 0.05
 
 
 def series_water_c(series: Series) -> dict[date, float]:
@@ -481,6 +494,7 @@ def sunlight_peers(
     *,
     max_lag: int = 5,
     min_pairs: int = 5,
+    min_days: int = MIN_PEER_DAYS,
 ) -> tuple[SunlightPeer, ...]:
     """Compare sunshine's effect on water rise with air held constant.
 
@@ -490,6 +504,11 @@ def sunlight_peers(
     sunshine-hour above normal **holding air temperature constant" — for
     roughly the same sun exposure, streams that differ here really do respond
     differently. Rows are sorted strongest first.
+
+    Only streams with valid temperature data make the list: candidates with
+    fewer than ``min_days`` of daily values, or a stuck (constant) sensor,
+    are excluded entirely, so test units and dry channels do not pollute the
+    comparison. Genuine fetch failures stay visible as error rows.
     """
 
     def row(
@@ -502,9 +521,7 @@ def sunlight_peers(
         error: str,
         *,
         this_site: bool = False,
-    ) -> SunlightPeer:
-        if not error and not water:
-            error = "no water temperature in window"
+    ) -> SunlightPeer | None:
         if error:
             return SunlightPeer(
                 site_number=number,
@@ -513,6 +530,8 @@ def sunlight_peers(
                 error=error,
                 this_site=this_site,
             )
+        if not this_site and not _peer_has_valid_water(water, min_days):
+            return None
         analysis = build_thermal_analysis(
             water,
             air,
@@ -527,11 +546,13 @@ def sunlight_peers(
             max_lag=max_lag,
             min_pairs=min_pairs,
         )
+        values = list(water.values())
         return SunlightPeer(
             site_number=number,
             name=name,
             distance_km=distance,
             water_days=analysis.water_days,
+            mean_c=(math.fsum(values) / len(values)) if values else None,
             sun_r=joint.sun_partial_r if joint is not None else None,
             air_r=joint.air_partial_r if joint is not None else None,
             slope_c_per_hour=joint.sun_slope if joint is not None else None,
@@ -556,8 +577,12 @@ def sunlight_peers(
         )
     ]
     rows.extend(
-        row(number, name, distance, water, air, sun, error)
-        for number, name, distance, water, air, sun, error in peers
+        kept
+        for kept in (
+            row(number, name, distance, water, air, sun, error)
+            for number, name, distance, water, air, sun, error in peers
+        )
+        if kept is not None
     )
     rows.sort(
         key=lambda item: (

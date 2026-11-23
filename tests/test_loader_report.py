@@ -109,6 +109,32 @@ class ThermalPeersTest(unittest.TestCase):
         self.assertEqual(results[1][1], {})
         self.assertIn("boom", results[1][2])
 
+    def test_fetches_past_dataless_gages_until_enough_have_temperature(self):
+        class PeerUsgs:
+            def __init__(self):
+                self.calls = []
+
+            def fetch_daily(self, number, start, end, codes):
+                self.calls.append(number)
+                if number in ("OK1",):
+                    return {"00010": {START + timedelta(days=i): 11.0 + i for i in range(10)}}
+                return {"00010": {}}  # a test unit: no valid temperature
+
+        loader = FakeReportLoader()
+        loader.usgs = PeerUsgs()
+        sites = [
+            make_site("EMPTY1", 43.0, -77.0),
+            make_site("EMPTY2", 43.0, -77.1),
+            make_site("OK1", 43.1, -77.1),
+        ]
+        results = loader.load_thermal_peers(
+            sites, window=WINDOW, max_sites=1, max_fetches=5
+        )
+        # One valid gage is enough, so the search stops right after OK1.
+        self.assertEqual(loader.usgs.calls, ["EMPTY1", "EMPTY2", "OK1"])
+        self.assertEqual(results[-1][0].number, "OK1")
+        self.assertEqual(len(results[-1][1]), 10)
+
 
 class HaversineTest(unittest.TestCase):
     def test_zero_and_known_distance(self):
